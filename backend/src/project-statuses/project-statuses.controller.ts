@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -59,5 +60,14 @@ export class ProjectStatusesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.projects.archiveStatus(projectId, statusId, user);
+  }
+
+  @Delete(':statusId')
+  remove(
+    @Param('projectId') projectId: string,
+    @Param('statusId') statusId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projects.deleteStatus(projectId, statusId, user);
   }
 }

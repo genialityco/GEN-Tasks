@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 import {
   FirestoreCollections,
+  Organization,
+  OrganizationMember,
   OrganizationMembership,
   User,
   UserRole,
@@ -68,6 +70,41 @@ export class UsersService {
     return { id: authUser.uid, ...profile };
   }
 
+  /**
+   * Busca un usuario por email; si no existe lo crea (en Auth + Firestore).
+   * Usado para dar de alta gestores que aun no tienen cuenta.
+   */
+  async findOrCreateByEmail(
+    email: string,
+    name: string,
+    password?: string,
+  ): Promise<User> {
+    try {
+      const authUser = await this.firebase.auth.getUserByEmail(email);
+      const profile = docToEntity<User>(
+        await this.users.doc(authUser.uid).get(),
+      );
+      if (profile) return profile;
+      // Existe en Auth pero no tenia perfil en Firestore: lo creamos.
+      const now = new Date().toISOString();
+      const data: Omit<User, 'id'> = {
+        email,
+        name,
+        isActive: true,
+        isArchived: false,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await this.users.doc(authUser.uid).set(data);
+      return { id: authUser.uid, ...data };
+    } catch (err) {
+      if ((err as { code?: string }).code === 'auth/user-not-found') {
+        return this.create({ email, name, password });
+      }
+      throw err;
+    }
+  }
+
   async update(id: string, dto: UpdateUserDto): Promise<User> {
     await this.findOne(id);
     await this.users.doc(id).update({
@@ -103,6 +140,64 @@ export class UsersService {
     if (role) query = query.where('role', '==', role);
     const snap = await query.get();
     return snapshotToEntities<OrganizationMembership>(snap);
+  }
+
+  /**
+   * Miembros asignables de una organizacion (admins y gestores activos),
+   * enriquecidos con nombre/email. Los admins se toman del array `admins` de la
+   * organizacion (fuente de verdad) y los gestores de sus membresias; asi un
+   * admin aparece aunque su membresia este desincronizada. Usado para asignar
+   * responsables.
+   */
+  async listOrganizationMembers(
+    organizationId: string,
+  ): Promise<OrganizationMember[]> {
+    const orgDoc = await this.firebase.firestore
+      .collection(FirestoreCollections.ORGANIZATIONS)
+      .doc(organizationId)
+      .get();
+    const org = docToEntity<Organization>(orgDoc);
+    const adminIds = org?.admins ?? [];
+    const gestorMemberships = await this.listMemberships(
+      organizationId,
+      UserRole.GESTOR,
+    );
+
+    const result = new Map<string, OrganizationMember>();
+
+    const addMember = async (userId: string, role: OrganizationMember['role']) => {
+      if (result.has(userId)) return;
+      const user = docToEntity<User>(await this.users.doc(userId).get());
+      if (!user || user.isArchived) return;
+      result.set(userId, {
+        userId,
+        name: user.name,
+        email: user.email,
+        role,
+      });
+    };
+
+    for (const uid of adminIds) await addMember(uid, UserRole.ADMIN);
+    for (const m of gestorMemberships) await addMember(m.userId, UserRole.GESTOR);
+
+    return [...result.values()];
+  }
+
+  /** Archiva la(s) membresia(s) de un usuario en una organizacion. */
+  async archiveMembershipByUserOrg(
+    userId: string,
+    organizationId: string,
+  ): Promise<void> {
+    const snap = await this.memberships
+      .where('userId', '==', userId)
+      .where('organizationId', '==', organizationId)
+      .get();
+    const now = new Date().toISOString();
+    await Promise.all(
+      snap.docs.map((d) =>
+        d.ref.update({ isArchived: true, isActive: false, updatedAt: now }),
+      ),
+    );
   }
 
   /** Crea (o reactiva) una membresia. Evita duplicados por (userId, organizationId). */

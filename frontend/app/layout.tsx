@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import { AuthProvider } from '../services/auth/AuthProvider';
+import '@mantine/core/styles.css';
 import './globals.css';
+import { ColorSchemeScript, MantineProvider } from '@mantine/core';
+import { AuthProvider } from '../services/auth/AuthProvider';
 
 export const metadata: Metadata = {
   title: 'GEN-Task',
@@ -10,9 +12,14 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="es">
+    <html lang="es" suppressHydrationWarning>
+      <head>
+        <ColorSchemeScript />
+      </head>
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <MantineProvider defaultColorScheme="light">
+          <AuthProvider>{children}</AuthProvider>
+        </MantineProvider>
       </body>
     </html>
   );

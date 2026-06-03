@@ -27,6 +27,11 @@ export class FirebaseService implements OnModuleInit {
       this.config.get<string>('FIREBASE_STORAGE_BUCKET') || undefined;
 
     this.app = admin.initializeApp({ credential, storageBucket });
+
+    // Permite escribir documentos con campos opcionales en `undefined` (se omiten)
+    // en lugar de lanzar error. Simplifica el manejo de campos opcionales.
+    this.app.firestore().settings({ ignoreUndefinedProperties: true });
+
     this.logger.log('Firebase Admin SDK inicializado correctamente.');
   }
 

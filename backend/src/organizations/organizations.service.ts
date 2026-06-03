@@ -4,6 +4,8 @@ import {
   DEFAULT_ORGANIZATION_FEATURES,
   FirestoreCollections,
   Organization,
+  OrganizationMembership,
+  UserRole,
 } from '@gen-task/shared';
 import { FirebaseService } from '../firebase/firebase.service';
 import {
@@ -11,13 +13,18 @@ import {
   snapshotToEntities,
 } from '../firebase/firestore.helpers';
 import { isSuperAdmin } from '../common/access-control';
+import { UsersService } from '../users/users.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { OrganizationFeaturesDto } from './dto/update-features.dto';
+import { AssignAdminDto } from './dto/assign-admin.dto';
 
 @Injectable()
 export class OrganizationsService {
-  constructor(private readonly firebase: FirebaseService) {}
+  constructor(
+    private readonly firebase: FirebaseService,
+    private readonly users: UsersService,
+  ) {}
 
   private get collection() {
     return this.firebase.firestore.collection(
@@ -117,6 +124,46 @@ export class OrganizationsService {
       updatedBy: user.uid,
     });
     return this.findOne(id);
+  }
+
+  /**
+   * Asigna un administrador a la organizacion por email: crea el usuario si no
+   * existe (o reutiliza el existente) y le da membresia ADMIN. Idempotente.
+   */
+  async assignAdmin(
+    organizationId: string,
+    dto: AssignAdminDto,
+  ): Promise<OrganizationMembership> {
+    await this.assertExists(organizationId);
+    const user = await this.users.findOrCreateByEmail(
+      dto.email,
+      dto.name,
+      dto.password,
+    );
+    return this.users.createMembership({
+      userId: user.id,
+      organizationId,
+      role: UserRole.ADMIN,
+    });
+  }
+
+  /**
+   * Quita un administrador de la organizacion: lo elimina del array `admins` y
+   * archiva su membresia ADMIN. Solo SUPER_ADMIN (via guard del controlador).
+   */
+  async removeAdmin(
+    organizationId: string,
+    userId: string,
+    user: AuthenticatedUser,
+  ): Promise<Organization> {
+    await this.assertExists(organizationId);
+    await this.collection.doc(organizationId).update({
+      admins: this.firebase.fieldValue.arrayRemove(userId),
+      updatedAt: new Date().toISOString(),
+      updatedBy: user.uid,
+    });
+    await this.users.archiveMembershipByUserOrg(userId, organizationId);
+    return this.findOne(organizationId);
   }
 
   private async assertExists(id: string): Promise<void> {

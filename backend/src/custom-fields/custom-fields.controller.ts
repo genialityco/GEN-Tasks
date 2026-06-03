@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -59,5 +60,14 @@ export class CustomFieldsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.projects.archiveCustomField(projectId, fieldId, user);
+  }
+
+  @Delete(':fieldId')
+  remove(
+    @Param('projectId') projectId: string,
+    @Param('fieldId') fieldId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projects.deleteCustomField(projectId, fieldId, user);
   }
 }

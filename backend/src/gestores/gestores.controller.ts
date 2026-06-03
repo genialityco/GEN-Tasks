@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Post,
   Put,
   UseGuards,
 } from '@nestjs/common';
@@ -12,6 +13,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { OrganizationAccessGuard } from '../common/guards/organization-access.guard';
 import { GestoresService } from './gestores.service';
 import { UpsertGestorAccessRuleDto } from './dto/gestor-access-rule.dto';
+import { CreateGestorDto } from './dto/create-gestor.dto';
 
 /**
  * Gestion de gestores y sus reglas de acceso/visibilidad.
@@ -26,6 +28,15 @@ export class GestoresController {
   @Get()
   list(@Param('organizationId') organizationId: string) {
     return this.gestores.listGestores(organizationId);
+  }
+
+  /** Alta de un gestor (crea usuario por email + membresia GESTOR). */
+  @Post()
+  create(
+    @Param('organizationId') organizationId: string,
+    @Body() dto: CreateGestorDto,
+  ) {
+    return this.gestores.createGestor(organizationId, dto);
   }
 
   @Get('rules/:projectId')

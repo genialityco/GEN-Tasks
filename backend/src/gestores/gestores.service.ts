@@ -31,6 +31,32 @@ export class GestoresService {
     return this.users.listMemberships(organizationId, UserRole.GESTOR);
   }
 
+  /**
+   * Da de alta un gestor: crea (o reutiliza) el usuario por email y le asigna
+   * una membresia con rol GESTOR en la organizacion.
+   */
+  async createGestor(
+    organizationId: string,
+    input: {
+      email: string;
+      name: string;
+      password?: string;
+      projectIds?: string[];
+    },
+  ): Promise<OrganizationMembership> {
+    const user = await this.users.findOrCreateByEmail(
+      input.email,
+      input.name,
+      input.password,
+    );
+    return this.users.createMembership({
+      userId: user.id,
+      organizationId,
+      role: UserRole.GESTOR,
+      projectIds: input.projectIds,
+    });
+  }
+
   /** Reglas de acceso de un gestor en un proyecto (normalmente una). */
   async getRulesForGestor(
     projectId: string,

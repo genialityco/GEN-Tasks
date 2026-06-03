@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { useWhatsappChats, useWhatsappMessages } from '../../../../hooks/useWhatsappChats';
 import { whatsappApi } from '../../../../services/api/whatsapp.api';
+import { TemplatesManager } from '../../../../components/whatsapp/TemplatesManager';
 
 /**
  * Seccion ChatWhatsapp. Tab "Chats": lista de conversaciones, historial de
@@ -32,9 +33,7 @@ export default function ChatWhatsappPage() {
       {tab === 'chats' ? (
         <ChatsView organizationId={params.organizationId} />
       ) : (
-        <div className="gt-card gt-muted">
-          Gestion de plantillas y mensajes automaticos (Fase 8).
-        </div>
+        <TemplatesManager organizationId={params.organizationId} />
       )}
     </main>
   );

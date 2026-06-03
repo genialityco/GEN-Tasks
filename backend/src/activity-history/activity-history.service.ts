@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import {
+  ActivityFieldChange,
+  ActivityHistoryType,
   ActivityStatusHistory,
   FirestoreCollections,
   UserRole,
@@ -18,10 +20,20 @@ export interface RecordStatusChangeInput {
   comment?: string;
 }
 
+export interface RecordFieldUpdateInput {
+  activityId: string;
+  organizationId: string;
+  projectId: string;
+  fieldChanges: ActivityFieldChange[];
+  changedBy: string;
+  changedByRole: UserRole;
+  comment?: string;
+}
+
 /**
- * Historial de actividades. En la primera version registra cambios de estado.
- * La firma esta pensada para extenderse a otros eventos (campos, responsables,
- * archivos) en el futuro sin romper a los consumidores.
+ * Historial de actividades. Registra cambios de estado (STATUS_CHANGE) y
+ * ediciones de campos personalizados (FIELD_UPDATE). La firma esta pensada para
+ * extenderse a otros eventos (responsables, archivos) sin romper consumidores.
  */
 @Injectable()
 export class ActivityHistoryService {
@@ -41,6 +53,7 @@ export class ActivityHistoryService {
       activityId: input.activityId,
       organizationId: input.organizationId,
       projectId: input.projectId,
+      type: ActivityHistoryType.STATUS_CHANGE,
       previousStatusId: input.previousStatusId,
       newStatusId: input.newStatusId,
       changedBy: input.changedBy,
@@ -52,11 +65,32 @@ export class ActivityHistoryService {
     return { id: ref.id, ...data };
   }
 
+  async recordFieldUpdate(
+    input: RecordFieldUpdateInput,
+  ): Promise<ActivityStatusHistory> {
+    const ref = this.collection.doc();
+    const data: Omit<ActivityStatusHistory, 'id'> = {
+      activityId: input.activityId,
+      organizationId: input.organizationId,
+      projectId: input.projectId,
+      type: ActivityHistoryType.FIELD_UPDATE,
+      fieldChanges: input.fieldChanges,
+      changedBy: input.changedBy,
+      changedByRole: input.changedByRole,
+      comment: input.comment,
+      createdAt: new Date().toISOString(),
+    };
+    await ref.set(data);
+    return { id: ref.id, ...data };
+  }
+
   async listByActivity(activityId: string): Promise<ActivityStatusHistory[]> {
+    // Solo filtro por igualdad (no requiere indice compuesto). El orden por
+    // fecha se aplica en memoria para evitar depender de un indice de Firestore.
     const snap = await this.collection
       .where('activityId', '==', activityId)
-      .orderBy('createdAt', 'desc')
       .get();
-    return snapshotToEntities<ActivityStatusHistory>(snap);
+    const entries = snapshotToEntities<ActivityStatusHistory>(snap);
+    return entries.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   }
 }

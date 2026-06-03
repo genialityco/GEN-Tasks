@@ -26,17 +26,39 @@ export interface Activity {
   updatedBy?: string;
 }
 
+/** Tipo de evento registrado en el historial de una actividad. */
+export enum ActivityHistoryType {
+  STATUS_CHANGE = 'STATUS_CHANGE',
+  FIELD_UPDATE = 'FIELD_UPDATE',
+}
+
+/** Detalle del cambio de un campo personalizado (para el historial). */
+export interface ActivityFieldChange {
+  /** Clave estable del campo. */
+  fieldKey: string;
+  /** Etiqueta legible del campo al momento del cambio. */
+  fieldLabel: string;
+  previousValue?: unknown;
+  newValue?: unknown;
+}
+
 /**
- * Registro de historial de cambio de estado de una actividad.
- * La arquitectura permite extenderlo a otros tipos de cambio en el futuro.
+ * Registro de historial de una actividad. Soporta cambios de estado
+ * (`STATUS_CHANGE`) y ediciones de campos personalizados (`FIELD_UPDATE`).
+ * Las entradas antiguas sin `type` se interpretan como cambios de estado.
  */
 export interface ActivityStatusHistory {
   id: string;
   activityId: string;
   organizationId: string;
   projectId: string;
+  /** Ausente en entradas heredadas; equivale a STATUS_CHANGE. */
+  type?: ActivityHistoryType;
   previousStatusId?: string;
-  newStatusId: string;
+  /** Presente en cambios de estado. */
+  newStatusId?: string;
+  /** Presente en ediciones de campos personalizados. */
+  fieldChanges?: ActivityFieldChange[];
   changedBy: string;
   changedByRole: UserRole;
   comment?: string;

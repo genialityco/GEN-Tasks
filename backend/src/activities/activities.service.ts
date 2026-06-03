@@ -7,12 +7,14 @@ import {
 import {
   Activity,
   ActivityCustomField,
+  ActivityFieldChange,
   ActivitySource,
   AuthenticatedUser,
   FirestoreCollections,
   GestorAccessRule,
   Project,
   ProjectStatus,
+  RuleEvent,
   UserRole,
 } from '@gen-task/shared';
 import { FirebaseService } from '../firebase/firebase.service';
@@ -31,6 +33,7 @@ import {
 import { ProjectsService } from '../projects/projects.service';
 import { GestoresService } from '../gestores/gestores.service';
 import { ActivityHistoryService } from '../activity-history/activity-history.service';
+import { RuleEngineService } from '../rules/rule-engine.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import {
   ChangeStatusDto,
@@ -45,6 +48,7 @@ export class ActivitiesService {
     private readonly projects: ProjectsService,
     private readonly gestores: GestoresService,
     private readonly history: ActivityHistoryService,
+    private readonly ruleEngine: RuleEngineService,
   ) {}
 
   private get collection() {
@@ -172,7 +176,15 @@ export class ActivitiesService {
       changedByRole: role ?? UserRole.ADMIN,
     });
 
-    return { id: ref.id, ...data };
+    // Triggers: ON_ACTIVITY_CREATED.
+    const created = await this.ruleEngine.runForEvent(
+      RuleEvent.ON_ACTIVITY_CREATED,
+      project,
+      { id: ref.id, ...data },
+      { actorId: user.uid, actorRole: role ?? UserRole.ADMIN },
+    );
+
+    return created;
   }
 
   // ----------------------------------------------------------------------
@@ -185,6 +197,9 @@ export class ActivitiesService {
     user: AuthenticatedUser,
   ): Promise<Activity> {
     const activity = await this.loadAccessibleActivity(activityId, user);
+    const project = await this.projects.loadAccessible(activity.projectId, user);
+    const role = this.effectiveRole(user, activity.organizationId);
+
     const patch: Record<string, unknown> = {
       updatedAt: new Date().toISOString(),
       updatedBy: user.uid,
@@ -192,6 +207,12 @@ export class ActivitiesService {
     if (dto.name !== undefined) patch.name = dto.name;
     if (dto.scheduledDate !== undefined) patch.scheduledDate = dto.scheduledDate;
     if (dto.responsibleIds !== undefined) patch.responsibleIds = dto.responsibleIds;
+
+    // Calcula el diff de campos personalizados para registrarlo en el historial.
+    const fieldChanges = dto.customFieldValues
+      ? this.diffCustomFields(project, activity, dto.customFieldValues)
+      : [];
+
     if (dto.customFieldValues !== undefined) {
       patch.customFieldValues = {
         ...activity.customFieldValues,
@@ -199,7 +220,54 @@ export class ActivitiesService {
       };
     }
     await this.collection.doc(activityId).update(patch);
-    return this.loadAccessibleActivity(activityId, user);
+
+    // Historial: registra automaticamente las ediciones de campos.
+    if (fieldChanges.length > 0) {
+      await this.history.recordFieldUpdate({
+        activityId,
+        organizationId: activity.organizationId,
+        projectId: activity.projectId,
+        fieldChanges,
+        changedBy: user.uid,
+        changedByRole: role ?? UserRole.ADMIN,
+      });
+    }
+
+    const updated = await this.loadAccessibleActivity(activityId, user);
+
+    // Triggers: ON_FIELD_UPDATED (solo si efectivamente cambiaron campos).
+    if (fieldChanges.length > 0) {
+      return this.ruleEngine.runForEvent(
+        RuleEvent.ON_FIELD_UPDATED,
+        project,
+        updated,
+        { actorId: user.uid, actorRole: role ?? UserRole.ADMIN },
+      );
+    }
+    return updated;
+  }
+
+  /** Diferencia entre los valores actuales y los nuevos de campos personalizados. */
+  private diffCustomFields(
+    project: Project,
+    activity: Activity,
+    nextValues: Record<string, unknown>,
+  ): ActivityFieldChange[] {
+    const changes: ActivityFieldChange[] = [];
+    for (const [key, newValue] of Object.entries(nextValues)) {
+      const previousValue = activity.customFieldValues?.[key];
+      const same =
+        JSON.stringify(previousValue ?? null) === JSON.stringify(newValue ?? null);
+      if (same) continue;
+      const field = project.customFields.find((f) => f.key === key);
+      changes.push({
+        fieldKey: key,
+        fieldLabel: field?.label ?? key,
+        previousValue,
+        newValue,
+      });
+    }
+    return changes;
   }
 
   // ----------------------------------------------------------------------
@@ -233,6 +301,12 @@ export class ActivitiesService {
       );
     }
 
+    // Flujo lineal: solo permite moverse a un estado adyacente por orden.
+    this.assertLinearTransition(project, activity.statusId, dto.statusId);
+
+    // Restricciones configurables (transition guards) basadas en campos.
+    this.assertTransitionGuards(project, activity, dto.statusId);
+
     // Validar campos obligatorios para el estado destino.
     this.validateRequiredFields(
       project,
@@ -258,7 +332,14 @@ export class ActivitiesService {
       comment: dto.comment,
     });
 
-    return this.loadAccessibleActivity(activityId, user);
+    // Triggers: ON_STATUS_CHANGED.
+    const updated = await this.loadAccessibleActivity(activityId, user);
+    return this.ruleEngine.runForEvent(
+      RuleEvent.ON_STATUS_CHANGED,
+      project,
+      updated,
+      { actorId: user.uid, actorRole: role ?? UserRole.ADMIN },
+    );
   }
 
   async archive(
@@ -358,6 +439,61 @@ export class ActivitiesService {
       throw new ForbiddenException(
         'No tienes permiso para realizar este cambio de estado.',
       );
+    }
+  }
+
+  /**
+   * Si el proyecto tiene flujo lineal activado, valida que el estado destino sea
+   * adyacente (un paso adelante o atras) al estado actual, segun el orden de los
+   * estados activos no archivados.
+   */
+  private assertLinearTransition(
+    project: Project,
+    fromStatusId: string,
+    toStatusId: string,
+  ): void {
+    if (!project.linearStatusFlow) return;
+    if (fromStatusId === toStatusId) return;
+
+    const ordered = project.statuses
+      .filter((s) => s.isActive && !s.isArchived)
+      .sort((a, b) => a.order - b.order);
+    const fromIdx = ordered.findIndex((s) => s.id === fromStatusId);
+    const toIdx = ordered.findIndex((s) => s.id === toStatusId);
+
+    // Si alguno no esta en la lista ordenada (p.ej. estado archivado), no se aplica.
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    if (Math.abs(fromIdx - toIdx) !== 1) {
+      throw new BadRequestException(
+        'Flujo lineal: solo puedes moverte al estado anterior o siguiente.',
+      );
+    }
+  }
+
+  /**
+   * Evalua las restricciones de cambio de estado del proyecto. Un guard que
+   * aplica al destino bloquea el cambio si sus condiciones no se cumplen.
+   */
+  private assertTransitionGuards(
+    project: Project,
+    activity: Activity,
+    toStatusId: string,
+  ): void {
+    for (const guard of project.transitionGuards ?? []) {
+      const applies = !guard.toStatusId || guard.toStatusId === toStatusId;
+      if (!applies) continue;
+      const passed = evaluateConditions(
+        guard.conditions,
+        guard.logicalOperator,
+        activity,
+      );
+      if (!passed) {
+        throw new BadRequestException(
+          guard.message ??
+            'No se cumple una restriccion para cambiar de estado.',
+        );
+      }
     }
   }
 

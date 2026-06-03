@@ -1,8 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import { RequireAuth } from '../../components/layout/RequireAuth';
 import { Topbar } from '../../components/layout/Topbar';
+import { CreateOrganizationForm } from '../../components/organizations/CreateOrganizationForm';
 import { useAuth } from '../../services/auth/AuthProvider';
 import { isSuperAdmin } from '../../services/auth/roles';
 import { useOrganizations } from '../../hooks/useOrganizations';
@@ -19,7 +21,8 @@ export default function SuperAdminPage() {
 
 function SuperAdminContent() {
   const { profile } = useAuth();
-  const { data: organizations, loading, error } = useOrganizations();
+  const { data: organizations, loading, error, reload } = useOrganizations();
+  const [creating, setCreating] = useState(false);
 
   if (!isSuperAdmin(profile)) {
     return (
@@ -39,11 +42,22 @@ function SuperAdminContent() {
         }}
       >
         <h1 style={{ margin: 0 }}>Organizaciones</h1>
-        {/* La creacion de organizaciones se conecta en Fase 2 (formulario). */}
-        <button className="gt-btn" disabled title="Disponible en Fase 2">
-          Crear organizacion
-        </button>
+        {!creating && (
+          <button className="gt-btn" onClick={() => setCreating(true)}>
+            Crear organizacion
+          </button>
+        )}
       </div>
+
+      {creating && (
+        <CreateOrganizationForm
+          onCancel={() => setCreating(false)}
+          onCreated={() => {
+            setCreating(false);
+            reload();
+          }}
+        />
+      )}
 
       {loading && <p>Cargando organizaciones...</p>}
       {error && <p className="gt-error">{error}</p>}
@@ -65,7 +79,7 @@ function SuperAdminContent() {
             </div>
           </Link>
         ))}
-        {organizations && organizations.length === 0 && (
+        {organizations && organizations.length === 0 && !creating && (
           <p className="gt-muted">Aun no hay organizaciones.</p>
         )}
       </div>

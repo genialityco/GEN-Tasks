@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -13,14 +14,19 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { OrganizationAccessGuard } from '../common/guards/organization-access.guard';
 import { OrganizationsService } from './organizations.service';
+import { UsersService } from '../users/users.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { UpdateFeaturesDto } from './dto/update-features.dto';
+import { AssignAdminDto } from './dto/assign-admin.dto';
 
 @Controller('organizations')
 @UseGuards(RolesGuard, OrganizationAccessGuard)
 export class OrganizationsController {
-  constructor(private readonly organizations: OrganizationsService) {}
+  constructor(
+    private readonly organizations: OrganizationsService,
+    private readonly users: UsersService,
+  ) {}
 
   /** Lista organizaciones visibles para el usuario (todas si es SUPER_ADMIN). */
   @Get()
@@ -43,6 +49,17 @@ export class OrganizationsController {
     return this.organizations.findOne(id);
   }
 
+  /**
+   * Miembros (admins y gestores) de la organizacion. Lectura disponible para
+   * cualquier miembro (incl. GESTOR) para mostrar responsables; la asignacion en
+   * si sigue restringida a ADMIN/SUPER_ADMIN en el frontend.
+   */
+  @Get(':organizationId/members')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.GESTOR)
+  listMembers(@Param('organizationId') id: string) {
+    return this.users.listOrganizationMembers(id);
+  }
+
   @Patch(':organizationId')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   update(
@@ -60,6 +77,27 @@ export class OrganizationsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.organizations.archive(id, user);
+  }
+
+  /** Asigna un administrador (crea el usuario si no existe). Exclusivo de SUPER_ADMIN. */
+  @Post(':organizationId/admins')
+  @Roles(UserRole.SUPER_ADMIN)
+  assignAdmin(
+    @Param('organizationId') id: string,
+    @Body() dto: AssignAdminDto,
+  ) {
+    return this.organizations.assignAdmin(id, dto);
+  }
+
+  /** Quita un administrador de la organizacion. Exclusivo de SUPER_ADMIN. */
+  @Delete(':organizationId/admins/:userId')
+  @Roles(UserRole.SUPER_ADMIN)
+  removeAdmin(
+    @Param('organizationId') id: string,
+    @Param('userId') userId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.organizations.removeAdmin(id, userId, user);
   }
 
   /** Activar/desactivar funcionalidades por organizacion: exclusivo de SUPER_ADMIN. */

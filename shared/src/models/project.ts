@@ -78,6 +78,45 @@ export interface ProjectRule {
   isActive: boolean;
 }
 
+/**
+ * Restriccion que debe cumplirse para permitir un cambio de estado de una
+ * actividad. El cambio se PERMITE si `evaluateConditions(...)` es `true`; si es
+ * `false`, el cambio se bloquea mostrando `message`. Ej.: para "si X esta vacio
+ * no se puede cambiar de estado", usar una condicion `IS_NOT_EMPTY` sobre X.
+ */
+export interface StatusTransitionGuard {
+  id: string;
+  /** Si se define, la restriccion solo aplica al cambiar HACIA este estado; vacio = cualquier cambio. */
+  toStatusId?: string;
+  conditions: RuleCondition[];
+  logicalOperator: LogicalOperator;
+  /** Mensaje mostrado cuando la restriccion bloquea el cambio. */
+  message?: string;
+}
+
+/**
+ * Configuracion del semaforo de cumplimiento (deadline) del proyecto. La fecha
+ * limite de una actividad es su `scheduledDate` (programacion) si existe; si no,
+ * se calcula como `createdAt + defaultDurationDays`. El color se deriva de los
+ * dias restantes hasta esa fecha limite.
+ */
+export interface ProjectCompliance {
+  enabled: boolean;
+  /** Dias desde la creacion para fijar la fecha limite cuando no hay fecha exacta. */
+  defaultDurationDays?: number;
+  /** Faltando <= estos dias para la fecha limite: amarillo (prioritario). */
+  attentionThresholdDays: number;
+  /** Faltando <= estos dias (incl. vencido): rojo (a punto de expirar/expirado). */
+  criticalThresholdDays: number;
+}
+
+/** Nivel del semaforo de cumplimiento de una actividad. */
+export enum ComplianceLevel {
+  ON_TIME = 'ON_TIME',
+  ATTENTION = 'ATTENTION',
+  CRITICAL = 'CRITICAL',
+}
+
 /** Proyecto: define la estructura de sus actividades dentro de una organizacion. */
 export interface Project {
   id: string;
@@ -87,6 +126,18 @@ export interface Project {
   statuses: ProjectStatus[];
   customFields: ActivityCustomField[];
   rules: ProjectRule[];
+  /** Semaforo de cumplimiento (deadline) configurable por el admin. */
+  compliance?: ProjectCompliance;
+  /**
+   * Columnas ocultas en la tabla de actividades. Claves: 'name', 'status',
+   * 'responsibles', 'createdAt', 'scheduledDate' o 'cf_<key>' para campos
+   * personalizados. Configurable por ADMIN/SUPER_ADMIN; aplica a todos.
+   */
+  hiddenColumnKeys?: string[];
+  /** Si `true`, un cambio de estado solo puede ir a un estado adyacente por `order`. */
+  linearStatusFlow?: boolean;
+  /** Restricciones que deben cumplirse para permitir un cambio de estado. */
+  transitionGuards?: StatusTransitionGuard[];
   isActive: boolean;
   isArchived: boolean;
   createdAt: IsoDate;
@@ -94,6 +145,14 @@ export interface Project {
   createdBy?: string;
   updatedBy?: string;
 }
+
+/** Configuracion por defecto del semaforo (deshabilitado). */
+export const DEFAULT_PROJECT_COMPLIANCE: ProjectCompliance = {
+  enabled: false,
+  defaultDurationDays: 3,
+  attentionThresholdDays: 2,
+  criticalThresholdDays: 0,
+};
 
 /** Estados base creados automaticamente cuando el Admin no define estados propios. */
 export const DEFAULT_PROJECT_STATUSES: Omit<ProjectStatus, 'id'>[] = [

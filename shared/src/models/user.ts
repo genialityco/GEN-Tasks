@@ -35,6 +35,17 @@ export interface OrganizationMembership {
 }
 
 /**
+ * Miembro asignable de una organizacion (admin o gestor), enriquecido con los
+ * datos del usuario. Usado, por ejemplo, para asignar responsables a una actividad.
+ */
+export interface OrganizationMember {
+  userId: string;
+  name: string;
+  email: string;
+  role: MembershipRole;
+}
+
+/**
  * Contexto de autenticacion resuelto por el backend a partir del token de Firebase.
  * Se inyecta en cada request autenticada.
  */

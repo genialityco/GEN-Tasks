@@ -145,11 +145,42 @@ export class ProjectsService {
       UserRole.SUPER_ADMIN,
       UserRole.ADMIN,
     ]);
-    await this.collection.doc(projectId).update({
-      ...dto,
+    const patch: Record<string, unknown> = {
       updatedAt: new Date().toISOString(),
       updatedBy: user.uid,
-    });
+    };
+    if (dto.name !== undefined) patch.name = dto.name;
+    if (dto.description !== undefined) patch.description = dto.description;
+    if (dto.compliance !== undefined) {
+      // Objeto plano para Firestore (no una instancia de clase).
+      patch.compliance = {
+        enabled: dto.compliance.enabled,
+        defaultDurationDays: dto.compliance.defaultDurationDays,
+        attentionThresholdDays: dto.compliance.attentionThresholdDays,
+        criticalThresholdDays: dto.compliance.criticalThresholdDays,
+      };
+    }
+    if (dto.hiddenColumnKeys !== undefined) {
+      patch.hiddenColumnKeys = [...dto.hiddenColumnKeys];
+    }
+    if (dto.linearStatusFlow !== undefined) {
+      patch.linearStatusFlow = dto.linearStatusFlow;
+    }
+    if (dto.transitionGuards !== undefined) {
+      // Objetos planos para Firestore; asigna id a los guards que no lo traigan.
+      patch.transitionGuards = dto.transitionGuards.map((g) => ({
+        id: g.id ?? randomUUID(),
+        toStatusId: g.toStatusId ?? null,
+        conditions: g.conditions.map((c) => ({
+          fieldKey: c.fieldKey,
+          operator: c.operator,
+          value: c.value ?? null,
+        })),
+        logicalOperator: g.logicalOperator,
+        message: g.message ?? null,
+      }));
+    }
+    await this.collection.doc(projectId).update(patch);
     return this.loadAccessible(projectId, user);
   }
 
@@ -243,6 +274,53 @@ export class ProjectsService {
     );
     await this.collection.doc(projectId).update({
       statuses,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user.uid,
+    });
+  }
+
+  /**
+   * Elimina definitivamente un estado del proyecto. Restringido a ADMIN y
+   * SUPER_ADMIN. No permite eliminar el estado por defecto, dejar el proyecto
+   * sin estados, ni eliminar un estado que tenga actividades asociadas (para
+   * evitar actividades huerfanas sin estado valido).
+   */
+  async deleteStatus(
+    projectId: string,
+    statusId: string,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    const project = await this.loadAccessible(projectId, user, [
+      UserRole.SUPER_ADMIN,
+      UserRole.ADMIN,
+    ]);
+
+    const status = project.statuses.find((s) => s.id === statusId);
+    if (!status) throw new NotFoundException('Estado no encontrado.');
+    if (status.isDefault) {
+      throw new BadRequestException('No se puede eliminar el estado por defecto.');
+    }
+
+    const remaining = project.statuses.filter((s) => s.id !== statusId);
+    if (remaining.length === 0) {
+      throw new BadRequestException('El proyecto debe tener al menos un estado.');
+    }
+
+    // Bloquea la eliminacion si hay actividades usando este estado.
+    const inUse = await this.firebase.firestore
+      .collection(FirestoreCollections.ACTIVITIES)
+      .where('projectId', '==', projectId)
+      .where('statusId', '==', statusId)
+      .limit(1)
+      .get();
+    if (!inUse.empty) {
+      throw new BadRequestException(
+        'No se puede eliminar un estado que tiene actividades asociadas.',
+      );
+    }
+
+    await this.collection.doc(projectId).update({
+      statuses: remaining,
       updatedAt: new Date().toISOString(),
       updatedBy: user.uid,
     });
@@ -352,6 +430,31 @@ export class ProjectsService {
     const customFields = project.customFields.map((f) =>
       f.id === fieldId ? { ...f, isArchived: true, isActive: false } : f,
     );
+    await this.collection.doc(projectId).update({
+      customFields,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user.uid,
+    });
+  }
+
+  /**
+   * Elimina definitivamente un campo personalizado del proyecto. Restringido a
+   * ADMIN y SUPER_ADMIN. Los valores que las actividades hubieran guardado para
+   * este campo quedan ignorados (no se muestran al no existir la definicion).
+   */
+  async deleteCustomField(
+    projectId: string,
+    fieldId: string,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    const project = await this.loadAccessible(projectId, user, [
+      UserRole.SUPER_ADMIN,
+      UserRole.ADMIN,
+    ]);
+    const field = project.customFields.find((f) => f.id === fieldId);
+    if (!field) throw new NotFoundException('Campo personalizado no encontrado.');
+
+    const customFields = project.customFields.filter((f) => f.id !== fieldId);
     await this.collection.doc(projectId).update({
       customFields,
       updatedAt: new Date().toISOString(),
