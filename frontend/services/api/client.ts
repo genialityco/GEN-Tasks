@@ -44,6 +44,36 @@ async function request<T>(
   return data as T;
 }
 
+/**
+ * Sube un archivo via multipart/form-data. No fija `Content-Type` para que el
+ * navegador agregue el boundary correcto; adjunta el ID token igual que el resto.
+ */
+export async function uploadFile<T>(path: string, file: File): Promise<T> {
+  const user = firebaseAuth.currentUser;
+  const token = user ? await user.getIdToken() : null;
+
+  const form = new FormData();
+  form.append('file', file);
+
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    body: form,
+    headers,
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const message =
+      (data && (Array.isArray(data.message) ? data.message.join(', ') : data.message)) ||
+      `Error ${res.status}`;
+    throw new ApiError(res.status, message);
+  }
+  return data as T;
+}
+
 export const apiClient = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>

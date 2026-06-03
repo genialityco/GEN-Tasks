@@ -81,6 +81,7 @@ export function ProjectConfig({
       />
       <RulesManager
         projectId={project.id}
+        organizationId={project.organizationId}
         fields={project.customFields}
         statuses={project.statuses}
       />

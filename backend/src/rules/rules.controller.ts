@@ -51,6 +51,8 @@ export class RulesController {
       conditions: dto.conditions,
       logicalOperator: dto.logicalOperator ?? LogicalOperator.AND,
       actions: dto.actions,
+      fromStatusId: dto.fromStatusId,
+      toStatusId: dto.toStatusId,
       isActive: dto.isActive ?? true,
     };
     return this.projects.addRule(projectId, rule, user);

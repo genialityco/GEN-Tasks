@@ -14,15 +14,18 @@ import {
   Button,
   Tooltip,
   Alert,
+  Select,
 } from '@mantine/core';
 import {
   IconFilter,
   IconCircleFilled,
   IconPencil,
   IconColumns3,
+  IconX,
 } from '@tabler/icons-react';
 import {
   CustomFieldType,
+  isFieldVisibleForActivity,
   UserRole,
   type Activity,
   type OrganizationMember,
@@ -30,6 +33,9 @@ import {
 } from '@gen-task/shared';
 import type { useActivitiesFilter } from '../../hooks/useActivitiesFilter';
 import { projectsApi } from '../../services/api/projects.api';
+import { activitiesApi } from '../../services/api/activities.api';
+import { attachmentsSummary } from './FileFieldUploader';
+import { isFileField } from './InlineCellEditor';
 import {
   COMPLIANCE_COLOR,
   COMPLIANCE_LABEL,
@@ -86,6 +92,7 @@ export function ActivitiesTable({
   const [editing, setEditing] = useState<{ activityId: string; colKey: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Ocultar columnas (ADMIN/SUPER_ADMIN).
+  // Ocultar columnas (ADMIN/SUPER_ADMIN).
   const canManageColumns = role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN;
   const hiddenKeys = project.hiddenColumnKeys ?? [];
 
@@ -135,6 +142,7 @@ export function ActivitiesTable({
         filterable: f.type === CustomFieldType.LIST,
         render: (a: Activity) => {
           const v = a.customFieldValues?.[f.key];
+          if (isFileField(f.type)) return attachmentsSummary(v);
           return v == null || v === '' ? '—' : String(v);
         },
       }));
@@ -175,6 +183,63 @@ export function ActivitiesTable({
 
   const dateFilterActive = !!filter.filterFechaFrom || !!filter.filterFechaTo;
   const totalCols = columns.length + 1;
+
+  // Editor inline para responsables (usa `members` del scope)
+  function InlineResponsibleEditor({ activity, onDone }: { activity: Activity; onDone: (err?: string, changed?: boolean) => void }) {
+    const [selected, setSelected] = useState<string[]>(activity.responsibleIds ?? []);
+    const [saving, setSaving] = useState(false);
+
+    const available = members.filter((m) => !selected.includes(m.userId));
+
+    async function save() {
+      setSaving(true);
+      try {
+        await activitiesApi.update(activity.id, { responsibleIds: selected });
+        onDone(undefined, true);
+      } catch (err) {
+        onDone((err as Error).message, false);
+      } finally {
+        setSaving(false);
+      }
+    }
+
+    return (
+      <div>
+        <Group gap={6} mb="xs" wrap="wrap">
+          {selected.length === 0 && <Text size="xs" c="dimmed">Sin responsables</Text>}
+          {selected.map((id) => {
+            const m = members.find((mm) => mm.userId === id);
+            return (
+              <Group key={id} gap={4} style={{ paddingRight: 6 }}>
+                <Badge size="xs">{m ? m.name : id}</Badge>
+                <ActionIcon size="xs" onClick={() => setSelected((s) => s.filter((x) => x !== id))}>
+                  <IconX size={12} />
+                </ActionIcon>
+              </Group>
+            );
+          })}
+        </Group>
+
+        <Group gap={6} mb="xs">
+          <Select
+            size="xs"
+            placeholder="Agregar responsable..."
+            data={available.map((m) => ({ value: m.userId, label: m.name }))}
+            onChange={(v) => v && setSelected((s) => [...s, v])}
+          />
+        </Group>
+
+        <Group style={{ justifyContent: 'flex-end' }}>
+          <Button size="xs" variant="default" onClick={() => onDone()}>
+            Cancelar
+          </Button>
+          <Button size="xs" loading={saving} onClick={save}>
+            Guardar
+          </Button>
+        </Group>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -362,33 +427,65 @@ export function ActivitiesTable({
             {columns.map((col) => {
               const isEditing =
                 editing?.activityId === activity.id && editing?.colKey === col.key;
-              const editable = isInlineEditableColumn(col.key, project);
+              // Campo personalizado oculto para esta actividad por su
+              // visibilidad condicional: no aplica, no editable.
+              const cfField = col.key.startsWith('cf_')
+                ? project.customFields.find((f) => f.key === col.key.slice(3))
+                : undefined;
+              const fieldHidden =
+                !!cfField &&
+                !isFieldVisibleForActivity(cfField, {
+                  statusId: activity.statusId,
+                  customFieldValues: activity.customFieldValues,
+                });
+              const editable =
+                !fieldHidden && isInlineEditableColumn(col.key, project);
               const isFileField =
+                !fieldHidden &&
                 col.key.startsWith('cf_') &&
                 !editable &&
-                project.customFields.some((f) => f.key === col.key.slice(3));
+                !!cfField;
               return (
                 <Table.Td
                   key={col.key}
-                  style={{ cursor: editable || isFileField ? 'pointer' : undefined }}
-                  onDoubleClick={() => {
-                    if (isEditing) return;
-                    setError(null);
-                    if (editable) setEditing({ activityId: activity.id, colKey: col.key });
-                    else if (isFileField) onQuickEdit?.(activity);
-                  }}
+                  style={{ cursor: (editable || isFileField || (col.key === 'responsibles' && members.length > 0)) ? 'pointer' : undefined }}
+                    onDoubleClick={() => {
+                      if (isEditing) return;
+                      setError(null);
+                      if (col.key === 'responsibles' && members.length > 0) {
+                        // Usar editor inline para responsables
+                        setEditing({ activityId: activity.id, colKey: 'responsibles' });
+                      } else if (editable) {
+                        setEditing({ activityId: activity.id, colKey: col.key });
+                      } else if (isFileField) {
+                        onQuickEdit?.(activity);
+                      }
+                    }}
                 >
-                  {isEditing ? (
-                    <InlineCellEditor
-                      activity={activity}
-                      project={project}
-                      columnKey={col.key}
-                      onDone={(err, changed) => {
-                        setEditing(null);
-                        if (err) setError(err);
-                        else if (changed) onChanged?.();
-                      }}
-                    />
+                  {fieldHidden ? (
+                    <Text c="dimmed" size="sm">—</Text>
+                  ) : isEditing ? (
+                    col.key === 'responsibles' ? (
+                      <InlineResponsibleEditor
+                        activity={activity}
+                        onDone={(err, changed) => {
+                          setEditing(null);
+                          if (err) setError(err);
+                          else if (changed) onChanged?.();
+                        }}
+                      />
+                    ) : (
+                      <InlineCellEditor
+                        activity={activity}
+                        project={project}
+                        columnKey={col.key}
+                        onDone={(err, changed) => {
+                          setEditing(null);
+                          if (err) setError(err);
+                          else if (changed) onChanged?.();
+                        }}
+                      />
+                    )
                   ) : (
                     col.render(activity)
                   )}
@@ -397,13 +494,6 @@ export function ActivitiesTable({
             })}
             <Table.Td>
               <Group gap="xs" wrap="nowrap">
-                {onQuickEdit && (
-                  <Tooltip label="Editar" withArrow>
-                    <ActionIcon variant="subtle" color="blue" onClick={() => onQuickEdit(activity)}>
-                      <IconPencil size={16} />
-                    </ActionIcon>
-                  </Tooltip>
-                )}
                 <Button component={Link} href={detailHref(activity.id)} size="xs" variant="light">
                   Ver Detalle
                 </Button>
@@ -420,6 +510,7 @@ export function ActivitiesTable({
         )}
       </Table.Tbody>
     </Table>
+      
     </>
   );
 }

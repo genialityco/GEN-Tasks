@@ -8,10 +8,13 @@ import {
   Activity,
   ActivityCustomField,
   ActivityFieldChange,
+  ActivityFileAttachment,
   ActivitySource,
   AuthenticatedUser,
+  CustomFieldType,
   FirestoreCollections,
   GestorAccessRule,
+  isFieldVisibleForActivity,
   Project,
   ProjectStatus,
   RuleEvent,
@@ -34,12 +37,21 @@ import { ProjectsService } from '../projects/projects.service';
 import { GestoresService } from '../gestores/gestores.service';
 import { ActivityHistoryService } from '../activity-history/activity-history.service';
 import { RuleEngineService } from '../rules/rule-engine.service';
+import { StorageService } from '../storage/storage.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import {
   ChangeStatusDto,
   UpdateActivityDto,
 } from './dto/update-activity.dto';
 import { QueryActivitiesDto } from './dto/query-activities.dto';
+
+/** Forma minima de un archivo subido por multer (evita depender de @types/multer). */
+export interface UploadedFile {
+  buffer: Buffer;
+  mimetype: string;
+  originalname: string;
+  size: number;
+}
 
 @Injectable()
 export class ActivitiesService {
@@ -49,6 +61,7 @@ export class ActivitiesService {
     private readonly gestores: GestoresService,
     private readonly history: ActivityHistoryService,
     private readonly ruleEngine: RuleEngineService,
+    private readonly storage: StorageService,
   ) {}
 
   private get collection() {
@@ -332,13 +345,14 @@ export class ActivitiesService {
       comment: dto.comment,
     });
 
-    // Triggers: ON_STATUS_CHANGED.
+    // Triggers: ON_STATUS_CHANGED (con la transicion para acotar reglas).
     const updated = await this.loadAccessibleActivity(activityId, user);
     return this.ruleEngine.runForEvent(
       RuleEvent.ON_STATUS_CHANGED,
       project,
       updated,
       { actorId: user.uid, actorRole: role ?? UserRole.ADMIN },
+      { fromStatusId: previousStatusId, toStatusId: dto.statusId },
     );
   }
 
@@ -353,6 +367,43 @@ export class ActivitiesService {
       updatedBy: user.uid,
     });
     return this.loadAccessibleActivity(activityId, user);
+  }
+
+  // ----------------------------------------------------------------------
+  // Subida de archivos (campos FILE / IMAGE / VIDEO)
+  // ----------------------------------------------------------------------
+
+  /**
+   * Sube un archivo asociado a un proyecto y devuelve el adjunto resultante.
+   * Valida el acceso al proyecto (tenant scoping) antes de subir; el adjunto se
+   * guarda luego dentro de `customFieldValues` del campo correspondiente.
+   */
+  async uploadAttachment(
+    projectId: string,
+    file: UploadedFile | undefined,
+    user: AuthenticatedUser,
+  ): Promise<ActivityFileAttachment> {
+    if (!file) {
+      throw new BadRequestException('No se recibio ningun archivo.');
+    }
+    const project = await this.projects.loadAccessible(projectId, user);
+
+    const { url, path } = await this.storage.uploadBuffer({
+      organizationId: project.organizationId,
+      buffer: file.buffer,
+      contentType: file.mimetype,
+      originalName: file.originalname,
+      folder: 'activities',
+    });
+
+    return {
+      url,
+      path,
+      name: file.originalname,
+      contentType: file.mimetype,
+      size: file.size,
+      uploadedAt: new Date().toISOString(),
+    };
   }
 
   // ----------------------------------------------------------------------
@@ -503,6 +554,8 @@ export class ActivitiesService {
     statusId: string,
     values: Record<string, unknown>,
   ): void {
+    // Actividad equivalente para evaluar la visibilidad condicional de campos.
+    const activityLike = { statusId, customFieldValues: values };
     const missing: string[] = [];
     for (const field of project.customFields as ActivityCustomField[]) {
       if (field.isArchived || !field.isActive) continue;
@@ -510,8 +563,18 @@ export class ActivitiesService {
         field.required ||
         (field.requiredOnStatuses ?? []).includes(statusId);
       if (!requiredHere) continue;
+      // Un campo con visibilidad condicional solo se exige cuando aplica.
+      if (!isFieldVisibleForActivity(field, activityLike)) continue;
       const value = values[field.key];
-      if (value === undefined || value === null || value === '') {
+      const isFileField = [
+        CustomFieldType.FILE,
+        CustomFieldType.IMAGE,
+        CustomFieldType.VIDEO,
+      ].includes(field.type);
+      const empty = isFileField
+        ? !Array.isArray(value) || value.length === 0
+        : value === undefined || value === null || value === '';
+      if (empty) {
         missing.push(field.label);
       }
     }

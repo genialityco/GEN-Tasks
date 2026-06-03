@@ -14,6 +14,17 @@ function readFieldValue(activity: Partial<Activity>, fieldKey: string): unknown 
   return activity.customFieldValues?.[fieldKey];
 }
 
+/**
+ * Determina si el valor de un campo se considera "vacío". Contempla los campos
+ * de archivo (FILE/IMAGE/VIDEO), cuyo valor es un arreglo de adjuntos: un
+ * arreglo vacío cuenta como vacío y uno con elementos como no vacío.
+ */
+function isEmptyValue(value: unknown): boolean {
+  if (value === undefined || value === null || value === '') return true;
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
+
 /** Evalua una sola condicion contra una actividad. */
 export function evaluateCondition(
   condition: RuleCondition,
@@ -32,9 +43,9 @@ export function evaluateCondition(
     case ConditionOperator.NOT_IN:
       return Array.isArray(expected) && !expected.includes(actual);
     case ConditionOperator.IS_EMPTY:
-      return actual === undefined || actual === null || actual === '';
+      return isEmptyValue(actual);
     case ConditionOperator.IS_NOT_EMPTY:
-      return actual !== undefined && actual !== null && actual !== '';
+      return !isEmptyValue(actual);
     default:
       return false;
   }

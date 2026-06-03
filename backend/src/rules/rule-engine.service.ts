@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   Activity,
+  CustomFieldType,
   FirestoreCollections,
   Host,
   Project,
@@ -14,10 +15,17 @@ import { docToEntity } from '../firebase/firestore.helpers';
 import { evaluateConditions } from '../common/rule-evaluation';
 import { ActivityHistoryService } from '../activity-history/activity-history.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { ProjectsService } from '../projects/projects.service';
 
 export interface RuleContext {
   actorId: string;
   actorRole: UserRole;
+}
+
+/** Transicion de estado que origino un evento ON_STATUS_CHANGED. */
+export interface StatusTransition {
+  fromStatusId?: string;
+  toStatusId: string;
 }
 
 /**
@@ -35,6 +43,7 @@ export class RuleEngineService {
     private readonly firebase: FirebaseService,
     private readonly history: ActivityHistoryService,
     private readonly whatsapp: WhatsappService,
+    private readonly projects: ProjectsService,
   ) {}
 
   private get activities() {
@@ -50,6 +59,7 @@ export class RuleEngineService {
     project: Project,
     activity: Activity,
     ctx: RuleContext,
+    transition?: StatusTransition,
   ): Promise<Activity> {
     const rules = (project.rules ?? []).filter(
       (r) => r.isActive && r.event === event,
@@ -57,6 +67,10 @@ export class RuleEngineService {
     let current = activity;
 
     for (const rule of rules) {
+      // ON_STATUS_CHANGED: si la regla acota la transicion, debe coincidir.
+      if (event === RuleEvent.ON_STATUS_CHANGED && !this.matchesTransition(rule, transition)) {
+        continue;
+      }
       const matches = evaluateConditions(
         rule.conditions,
         rule.logicalOperator,
@@ -69,6 +83,26 @@ export class RuleEngineService {
       }
     }
     return current;
+  }
+
+  /**
+   * Indica si una regla de cambio de estado aplica a la transicion ocurrida.
+   * Una regla sin `fromStatusId`/`toStatusId` aplica a cualquier transicion; si
+   * los define, deben coincidir con la transicion (origen/destino).
+   */
+  private matchesTransition(
+    rule: ProjectRule,
+    transition?: StatusTransition,
+  ): boolean {
+    if (!rule.fromStatusId && !rule.toStatusId) return true;
+    if (!transition) return true;
+    if (rule.fromStatusId && rule.fromStatusId !== transition.fromStatusId) {
+      return false;
+    }
+    if (rule.toStatusId && rule.toStatusId !== transition.toStatusId) {
+      return false;
+    }
+    return true;
   }
 
   private async executeAction(
@@ -123,6 +157,46 @@ export class RuleEngineService {
           comment: `Trigger: ${rule.name}`,
         });
         return { ...activity, statusId };
+      }
+
+      case RuleActionType.CREATE_CUSTOM_FIELD: {
+        // Soporta uno o varios campos por accion: `payload.fields[]` (formato
+        // nuevo) o el formato antiguo de un solo campo (label/type/...).
+        const defs: Record<string, unknown>[] = Array.isArray(payload.fields)
+          ? (payload.fields as Record<string, unknown>[])
+          : [payload];
+        for (const def of defs) {
+          const label = (def.label as string | undefined)?.trim();
+          const type = def.type as CustomFieldType | undefined;
+          if (!label || !type) continue;
+          try {
+            const created = await this.projects.createCustomFieldFromRule(
+              activity.projectId,
+              {
+                label,
+                type,
+                required: Boolean(def.required),
+                options: Array.isArray(def.options)
+                  ? (def.options as { label: string; value: string }[])
+                  : undefined,
+                // El campo solo sera visible/exigible en actividades que cumplan
+                // la misma condicion que disparo la regla.
+                visibilityConditions: rule.conditions,
+                visibilityLogicalOperator: rule.logicalOperator,
+              },
+            );
+            if (created) {
+              this.logger.debug(
+                `Campo personalizado "${created.label}" creado por la regla "${rule.name}".`,
+              );
+            }
+          } catch (err) {
+            this.logger.warn(
+              `No se pudo crear el campo personalizado "${label}" por la regla "${rule.name}": ${(err as Error).message}`,
+            );
+          }
+        }
+        return activity;
       }
 
       case RuleActionType.SEND_WHATSAPP:

@@ -71,6 +71,62 @@ export class UsersService {
   }
 
   /**
+   * Crea o promueve un usuario como SUPER_ADMIN y devuelve un custom token
+   * para iniciar sesion sin depender de un ID token previo.
+   */
+  async createPrivateSuperAdmin(dto: CreateUserDto): Promise<{
+    user: User;
+    customToken: string;
+  }> {
+    let authUser;
+    try {
+      authUser = await this.firebase.auth.getUserByEmail(dto.email);
+      await this.firebase.auth.updateUser(authUser.uid, {
+        displayName: dto.name,
+        ...(dto.password ? { password: dto.password } : {}),
+        disabled: false,
+      });
+    } catch (err) {
+      if ((err as { code?: string }).code !== 'auth/user-not-found') {
+        throw err;
+      }
+
+      authUser = await this.firebase.auth.createUser({
+        email: dto.email,
+        displayName: dto.name,
+        ...(dto.password ? { password: dto.password } : {}),
+      });
+    }
+
+    const now = new Date().toISOString();
+    const profile: Omit<User, 'id'> = {
+      email: dto.email,
+      name: dto.name,
+      globalRole: UserRole.SUPER_ADMIN,
+      isActive: true,
+      isArchived: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await this.users.doc(authUser.uid).set(profile, { merge: true });
+    await this.firebase.auth.setCustomUserClaims(authUser.uid, {
+      globalRole: UserRole.SUPER_ADMIN,
+      setup: true,
+    });
+
+    const customToken = await this.firebase.auth.createCustomToken(authUser.uid, {
+      setup: true,
+      globalRole: UserRole.SUPER_ADMIN,
+    });
+
+    return {
+      user: { id: authUser.uid, ...profile },
+      customToken,
+    };
+  }
+
+  /**
    * Busca un usuario por email; si no existe lo crea (en Auth + Firestore).
    * Usado para dar de alta gestores que aun no tienen cuenta.
    */
@@ -107,6 +163,9 @@ export class UsersService {
 
   async update(id: string, dto: UpdateUserDto): Promise<User> {
     await this.findOne(id);
+    if (dto.password) {
+      await this.firebase.auth.updateUser(id, { password: dto.password });
+    }
     await this.users.doc(id).update({
       ...dto,
       updatedAt: new Date().toISOString(),

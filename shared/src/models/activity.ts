@@ -2,6 +2,24 @@ import { IsoDate } from './common';
 import { ActivitySource, UserRole } from '../enums';
 
 /**
+ * Archivo adjunto a un campo personalizado de tipo FILE / IMAGE / VIDEO. Se
+ * almacena dentro de `customFieldValues[key]` como un arreglo de adjuntos.
+ */
+export interface ActivityFileAttachment {
+  /** URL firmada de larga duracion para visualizar/descargar el archivo. */
+  url: string;
+  /** Ruta interna en Firebase Storage (segmentada por organizacion). */
+  path: string;
+  /** Nombre original del archivo subido. */
+  name: string;
+  /** Tipo MIME del archivo. */
+  contentType: string;
+  /** Tamano en bytes (si esta disponible). */
+  size?: number;
+  uploadedAt: IsoDate;
+}
+
+/**
  * Actividad: elemento operativo principal. Pertenece a un proyecto y a una
  * organizacion. Nunca se elimina fisicamente; se archiva (isArchived).
  */

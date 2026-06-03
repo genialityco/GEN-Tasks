@@ -68,6 +68,8 @@ export enum RuleActionType {
   REQUEST_HOST_INFORMATION = 'REQUEST_HOST_INFORMATION',
   ASSIGN_RESPONSIBLE = 'ASSIGN_RESPONSIBLE',
   REGISTER_HISTORY_EVENT = 'REGISTER_HISTORY_EVENT',
+  /** Crea un campo personalizado en el proyecto (idempotente por etiqueta). */
+  CREATE_CUSTOM_FIELD = 'CREATE_CUSTOM_FIELD',
 }
 
 /** Estado del flujo de una sesion de WhatsApp. */

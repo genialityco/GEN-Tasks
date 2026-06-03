@@ -8,6 +8,7 @@ import {
   type Project,
 } from '@gen-task/shared';
 import { activitiesApi } from '../../services/api/activities.api';
+import { normalizeType } from './DynamicField';
 
 /** Tipos de campo de archivo, no editables inline. */
 export const FILE_FIELD_TYPES = [
@@ -15,6 +16,12 @@ export const FILE_FIELD_TYPES = [
   CustomFieldType.IMAGE,
   CustomFieldType.VIDEO,
 ];
+
+/** Indica si un campo es de archivo (FILE/IMAGE/VIDEO), tolerante a variaciones de tipo. */
+export function isFileField(type: unknown): boolean {
+  const t = normalizeType(type);
+  return t != null && FILE_FIELD_TYPES.includes(t);
+}
 
 /** Columnas base editables inline (las demas se editan en el modal o no se editan). */
 export function isInlineEditableColumn(
@@ -26,7 +33,7 @@ export function isInlineEditableColumn(
   }
   if (columnKey.startsWith('cf_')) {
     const field = project.customFields.find((f) => f.key === columnKey.slice(3));
-    return !!field && !FILE_FIELD_TYPES.includes(field.type);
+    return !!field && !isFileField(field.type);
   }
   return false;
 }
@@ -49,6 +56,7 @@ export function InlineCellEditor({
   onDone: (error?: string, changed?: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<'date' | 'hours'>('date');
 
   async function commit(fn: () => Promise<unknown>, unchanged: boolean) {
     if (unchanged) {
@@ -118,21 +126,50 @@ export function InlineCellEditor({
   // --- Programacion ---
   if (columnKey === 'scheduledDate') {
     const initial = activity.scheduledDate ? activity.scheduledDate.slice(0, 10) : '';
+    // Modo: fecha exacta o horas desde createdAt
     return (
-      <InlineText
-        type="date"
-        initial={initial}
-        onCommit={(val) =>
-          commit(
-            () =>
-              activitiesApi.update(activity.id, {
-                scheduledDate: val ? new Date(val).toISOString() : undefined,
-              }),
-            val === initial,
-          )
-        }
-        onCancel={onDone}
-      />
+      <Group gap={6} wrap="nowrap">
+        <Select
+          size="xs"
+          value={mode}
+          data={[{ value: 'date', label: 'Fecha' }, { value: 'hours', label: 'Horas desde creación' }]}
+          onChange={(v) => setMode((v as 'date' | 'hours') ?? 'date')}
+        />
+        {mode === 'date' ? (
+          <InlineText
+            type="date"
+            initial={initial}
+            onCommit={(val) =>
+              commit(
+                () =>
+                  // Construir Date en hora local para evitar desfases de zona horaria
+                  (async () => {
+                    if (!val) return activitiesApi.update(activity.id, { scheduledDate: undefined });
+                    const [y, m, d] = val.split('-').map((s) => Number(s));
+                    const local = new Date(y, m - 1, d);
+                    return activitiesApi.update(activity.id, { scheduledDate: local.toISOString() });
+                  })(),
+                val === initial,
+              )
+            }
+            onCancel={onDone}
+          />
+        ) : (
+          <InlineNumber
+            initial={undefined}
+            onCommit={(hours) => {
+              if (hours == null) {
+                commit(() => activitiesApi.update(activity.id, { scheduledDate: undefined }), false);
+                return;
+              }
+              const created = new Date(activity.createdAt);
+              const target = new Date(created.getTime() + Math.round(Number(hours)) * 3600 * 1000);
+              commit(() => activitiesApi.update(activity.id, { scheduledDate: target.toISOString() }), false);
+            }}
+            onCancel={onDone}
+          />
+        )}
+      </Group>
     );
   }
 
@@ -143,6 +180,7 @@ export function InlineCellEditor({
       onDone();
       return null;
     }
+    const fieldType = normalizeType(field.type);
     const current = activity.customFieldValues?.[field.key];
     const saveValue = (v: unknown, unchanged: boolean) =>
       commit(
@@ -153,7 +191,7 @@ export function InlineCellEditor({
         unchanged,
       );
 
-    if (field.type === CustomFieldType.LIST) {
+    if (fieldType === CustomFieldType.LIST) {
       return (
         <Select
           size="xs"
@@ -170,7 +208,7 @@ export function InlineCellEditor({
         />
       );
     }
-    if (field.type === CustomFieldType.NUMBER) {
+    if (fieldType === CustomFieldType.NUMBER) {
       return (
         <InlineNumber
           initial={typeof current === 'number' ? current : undefined}
@@ -182,7 +220,7 @@ export function InlineCellEditor({
     // TEXT y DATE usan input de texto/fecha.
     return (
       <InlineText
-        type={field.type === CustomFieldType.DATE ? 'date' : 'text'}
+        type={fieldType === CustomFieldType.DATE ? 'date' : 'text'}
         initial={current == null ? '' : String(current)}
         onCommit={(val) =>
           saveValue(val === '' ? undefined : val, val === (current == null ? '' : String(current)))

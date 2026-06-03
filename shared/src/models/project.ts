@@ -40,6 +40,15 @@ export interface ActivityCustomField {
   requiredOnStatuses?: string[];
   visibleForRoles?: UserRole[];
   editableForRoles?: UserRole[];
+  /**
+   * Visibilidad condicional: el campo solo se muestra y se exige en las
+   * actividades que cumplen estas condiciones (evaluadas sobre los valores de la
+   * actividad). Vacio/ausente = el campo es visible en todas las actividades.
+   * Lo usa, por ejemplo, la accion de trigger "Crear campo personalizado" para
+   * que el campo aparezca solo bajo la condicion que disparo su creacion.
+   */
+  visibilityConditions?: RuleCondition[];
+  visibilityLogicalOperator?: LogicalOperator;
   options?: CustomFieldOption[];
   order: number;
   isActive: boolean;
@@ -75,6 +84,14 @@ export interface ProjectRule {
   conditions: RuleCondition[];
   logicalOperator: LogicalOperator;
   actions: RuleAction[];
+  /**
+   * Solo para `event` = ON_STATUS_CHANGED: limita el disparo a una transicion
+   * concreta. Si se define `fromStatusId`, la regla solo aplica cuando el estado
+   * previo coincide; si se define `toStatusId`, solo cuando el estado nuevo
+   * coincide. Vacios = cualquier transicion.
+   */
+  fromStatusId?: string;
+  toStatusId?: string;
   isActive: boolean;
 }
 

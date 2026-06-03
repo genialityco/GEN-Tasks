@@ -24,13 +24,19 @@ import {
 } from '@gen-task/shared';
 import { projectsApi } from '../../services/api/projects.api';
 
+/**
+ * Etiquetas en clave de "requisito": la condición es lo que DEBE cumplirse para
+ * permitir el cambio de estado. Redactadas como obligación para evitar la
+ * confusión de configurarlas de forma invertida (ej: "debe tener un valor" para
+ * exigir que un campo de archivo esté adjunto antes de avanzar).
+ */
 const OPERATOR_LABELS: Record<ConditionOperator, string> = {
-  EQUALS: 'es igual a',
-  NOT_EQUALS: 'es distinto de',
-  IN: 'está en',
-  NOT_IN: 'no está en',
-  IS_EMPTY: 'está vacío',
-  IS_NOT_EMPTY: 'no está vacío',
+  EQUALS: 'debe ser igual a',
+  NOT_EQUALS: 'debe ser distinto de',
+  IN: 'debe estar en',
+  NOT_IN: 'no debe estar en',
+  IS_EMPTY: 'debe estar vacío',
+  IS_NOT_EMPTY: 'debe tener un valor (no vacío)',
 };
 
 /** Operadores que requieren un valor de comparación. */
@@ -158,6 +164,12 @@ export function StatusFlowConfig({
 
         <Divider my="xs" label="Restricciones de cambio de estado" labelPosition="left" />
 
+        <Text size="xs" c="dimmed">
+          Cada restricción define un <strong>requisito</strong> que debe cumplirse para
+          permitir el cambio. Ej.: para exigir que un archivo esté adjunto antes de avanzar,
+          usa <em>“debe tener un valor (no vacío)”</em>.
+        </Text>
+
         <Stack gap={6}>
           {guards.map((g) => {
             const c = g.conditions[0];
@@ -172,11 +184,11 @@ export function StatusFlowConfig({
                 style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 6 }}
               >
                 <Text size="sm">
-                  Para cambiar a <strong>{statusName(g.toStatusId)}</strong>:{' '}
+                  Para cambiar a <strong>{statusName(g.toStatusId)}</strong> se requiere que{' '}
                   <strong>{c ? fieldLabel(c.fieldKey) : '—'}</strong>{' '}
                   {op ? OPERATOR_LABELS[op] : ''}{' '}
                   {op && NEEDS_VALUE.includes(op) ? <em>{String(c?.value ?? '')}</em> : ''}
-                  {g.message ? ` — “${g.message}”` : ''}
+                  {g.message ? ` — si no: “${g.message}”` : ''}
                 </Text>
                 <Tooltip label="Eliminar" withArrow>
                   <ActionIcon color="red" variant="subtle" onClick={() => removeGuard(g.id)} disabled={busy}>
@@ -205,7 +217,7 @@ export function StatusFlowConfig({
             searchable
           />
           <Select
-            label="Condición"
+            label="Requisito"
             data={Object.values(ConditionOperator).map((op) => ({
               value: op,
               label: OPERATOR_LABELS[op],

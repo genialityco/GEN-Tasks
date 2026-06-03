@@ -39,6 +39,10 @@ export class CreateProjectRuleDto {
   @Type(() => RuleActionDto)
   actions!: RuleActionDto[];
 
+  /** Solo para ON_STATUS_CHANGED: limita el disparo a esta transicion. */
+  @IsOptional() @IsString() fromStatusId?: string;
+  @IsOptional() @IsString() toStatusId?: string;
+
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
@@ -61,6 +65,9 @@ export class UpdateProjectRuleDto {
   @ValidateNested({ each: true })
   @Type(() => RuleActionDto)
   actions?: RuleActionDto[];
+
+  @IsOptional() @IsString() fromStatusId?: string;
+  @IsOptional() @IsString() toStatusId?: string;
 
   @IsOptional() @IsBoolean() isActive?: boolean;
 }

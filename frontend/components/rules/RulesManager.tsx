@@ -3,13 +3,16 @@
 import { useState } from 'react';
 import {
   ConditionOperator,
+  CustomFieldType,
   LogicalOperator,
   RuleActionType,
   RuleEvent,
+  UserRole,
   type ActivityCustomField,
   type ProjectStatus,
 } from '@gen-task/shared';
 import { rulesApi } from '../../services/api/rules.api';
+import { organizationsApi } from '../../services/api/organizations.api';
 import { useAsync } from '../../hooks/useAsync';
 
 const EVENT_LABELS: Record<RuleEvent, string> = {
@@ -22,9 +25,33 @@ const ACTION_LABELS: Record<RuleActionType, string> = {
   SEND_WHATSAPP: 'Enviar WhatsApp',
   CHANGE_STATUS: 'Cambiar estado',
   REQUEST_HOST_INFORMATION: 'Solicitar info al host',
-  ASSIGN_RESPONSIBLE: 'Asignar responsable',
+  ASSIGN_RESPONSIBLE: 'Notificar a',
   REGISTER_HISTORY_EVENT: 'Registrar en historial',
+  CREATE_CUSTOM_FIELD: 'Crear campo personalizado',
 };
+
+/** Etiquetas de los tipos de campo (igual que en el gestor de campos). */
+const FIELD_TYPE_LABELS: Record<CustomFieldType, string> = {
+  TEXT: 'Texto',
+  NUMBER: 'Numero',
+  DATE: 'Fecha',
+  FILE: 'Archivo',
+  IMAGE: 'Imagen',
+  VIDEO: 'Video',
+  LIST: 'Lista',
+};
+
+/** Borrador de un campo a crear por la accion CREATE_CUSTOM_FIELD. */
+interface FieldDraft {
+  label: string;
+  type: CustomFieldType;
+  required: boolean;
+  optionsText: string;
+}
+
+function emptyFieldDraft(): FieldDraft {
+  return { label: '', type: CustomFieldType.TEXT, required: false, optionsText: '' };
+}
 
 /**
  * Editor de condiciones y triggers del proyecto (Fase 6). Crea reglas con un
@@ -33,14 +60,25 @@ const ACTION_LABELS: Record<RuleActionType, string> = {
  */
 export function RulesManager({
   projectId,
+  organizationId,
   fields,
   statuses,
 }: {
   projectId: string;
+  organizationId: string;
   fields: ActivityCustomField[];
   statuses: ProjectStatus[];
 }) {
   const { data: rules, reload } = useAsync(() => rulesApi.list(projectId), [projectId]);
+  // Miembros (Admin/Gestor) de la organizacion, para la accion "Asignar responsable".
+  const { data: members } = useAsync(
+    () => organizationsApi.members(organizationId),
+    [organizationId],
+  );
+
+  /** Nombre legible de un estado por id (vacio si no se especifica). */
+  const statusName = (id?: string) =>
+    id ? statuses.find((s) => s.id === id)?.name ?? id : '';
 
   const [name, setName] = useState('');
   const [event, setEvent] = useState<RuleEvent>(RuleEvent.ON_STATUS_CHANGED);
@@ -52,6 +90,14 @@ export function RulesManager({
   );
   const [actionMessage, setActionMessage] = useState('');
   const [actionStatusId, setActionStatusId] = useState('');
+  const [actionResponsibleId, setActionResponsibleId] = useState('');
+  // Transicion opcional para el evento "Al cambiar de estado".
+  const [fromStatusId, setFromStatusId] = useState('');
+  const [toStatusId, setToStatusId] = useState('');
+  // Configuracion de los campos a crear (accion CREATE_CUSTOM_FIELD): permite
+  // definir uno o varios campos por accion, con la misma logica que el gestor
+  // de campos personalizados.
+  const [cfDrafts, setCfDrafts] = useState<FieldDraft[]>([emptyFieldDraft()]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,16 +120,51 @@ export function RulesManager({
       if (actionType === RuleActionType.CHANGE_STATUS) {
         payload.statusId = actionStatusId;
       }
+      if (actionType === RuleActionType.ASSIGN_RESPONSIBLE) {
+        payload.responsibleId = actionResponsibleId;
+        // Mensaje que se notificara al responsable cuando exista el servicio
+        // de notificaciones.
+        payload.message = actionMessage;
+      }
+      if (actionType === RuleActionType.CREATE_CUSTOM_FIELD) {
+        payload.fields = cfDrafts
+          .filter((d) => d.label.trim())
+          .map((d) => ({
+            label: d.label.trim(),
+            type: d.type,
+            required: d.required,
+            ...(d.type === CustomFieldType.LIST
+              ? {
+                  options: d.optionsText
+                    .split(',')
+                    .map((o) => o.trim())
+                    .filter(Boolean)
+                    .map((o) => ({ label: o, value: o })),
+                }
+              : {}),
+          }));
+      }
       await rulesApi.create(projectId, {
         name: name.trim(),
         event,
         conditions,
         logicalOperator: LogicalOperator.AND,
         actions: [{ type: actionType, payload }],
+        // La transicion solo aplica al evento de cambio de estado.
+        ...(event === RuleEvent.ON_STATUS_CHANGED
+          ? {
+              fromStatusId: fromStatusId || undefined,
+              toStatusId: toStatusId || undefined,
+            }
+          : {}),
       });
       setName('');
       setValue('');
       setActionMessage('');
+      setActionResponsibleId('');
+      setFromStatusId('');
+      setToStatusId('');
+      setCfDrafts([emptyFieldDraft()]);
       reload();
     } catch (err) {
       setError((err as Error).message);
@@ -95,6 +176,17 @@ export function RulesManager({
   async function remove(ruleId: string) {
     await rulesApi.remove(projectId, ruleId);
     reload();
+  }
+
+  // --- Borradores de campos (accion CREATE_CUSTOM_FIELD) ---
+  function updateDraft(index: number, patch: Partial<FieldDraft>) {
+    setCfDrafts((prev) => prev.map((d, i) => (i === index ? { ...d, ...patch } : d)));
+  }
+  function addDraft() {
+    setCfDrafts((prev) => [...prev, emptyFieldDraft()]);
+  }
+  function removeDraft(index: number) {
+    setCfDrafts((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
   }
 
   return (
@@ -118,7 +210,11 @@ export function RulesManager({
             <span>
               <strong>{r.name}</strong>{' '}
               <span className="gt-muted">
-                {EVENT_LABELS[r.event]} ·{' '}
+                {EVENT_LABELS[r.event]}
+                {r.event === RuleEvent.ON_STATUS_CHANGED && (r.fromStatusId || r.toStatusId)
+                  ? ` (${statusName(r.fromStatusId) || 'cualquiera'} → ${statusName(r.toStatusId) || 'cualquiera'})`
+                  : ''}{' '}
+                ·{' '}
                 {r.actions.map((a) => ACTION_LABELS[a.type]).join(', ')}
               </span>
             </span>
@@ -158,6 +254,45 @@ export function RulesManager({
             ))}
           </select>
         </label>
+
+        {event === RuleEvent.ON_STATUS_CHANGED && (
+          <div style={{ display: 'grid', gap: 4 }}>
+            <span className="gt-muted">Transición (opcional)</span>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <select
+                className="gt-input"
+                style={{ flex: 1, minWidth: 140 }}
+                value={fromStatusId}
+                onChange={(e) => setFromStatusId(e.target.value)}
+              >
+                <option value="">Desde: cualquier estado</option>
+                {statuses
+                  .filter((s) => !s.isArchived)
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      Desde: {s.name}
+                    </option>
+                  ))}
+              </select>
+              <span aria-hidden>→</span>
+              <select
+                className="gt-input"
+                style={{ flex: 1, minWidth: 140 }}
+                value={toStatusId}
+                onChange={(e) => setToStatusId(e.target.value)}
+              >
+                <option value="">Hacia: cualquier estado</option>
+                {statuses
+                  .filter((s) => !s.isArchived)
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      Hacia: {s.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          </div>
+        )}
 
         <span className="gt-muted">Condicion (opcional)</span>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -227,7 +362,21 @@ export function RulesManager({
                   </option>
                 ))}
             </select>
-          ) : (
+          ) : actionType === RuleActionType.ASSIGN_RESPONSIBLE ? (
+            <select
+              className="gt-input"
+              style={{ flex: 1, minWidth: 140 }}
+              value={actionResponsibleId}
+              onChange={(e) => setActionResponsibleId(e.target.value)}
+            >
+              <option value="">Seleccionar usuario a notificar...</option>
+              {(members ?? []).map((m) => (
+                <option key={m.userId} value={m.userId}>
+                  {m.name} · {m.role === UserRole.ADMIN ? 'Admin' : 'Gestor'}
+                </option>
+              ))}
+            </select>
+          ) : actionType === RuleActionType.CREATE_CUSTOM_FIELD ? null : (
             <input
               className="gt-input"
               style={{ flex: 1, minWidth: 140 }}
@@ -237,6 +386,93 @@ export function RulesManager({
             />
           )}
         </div>
+
+        {actionType === RuleActionType.ASSIGN_RESPONSIBLE && (
+          <input
+            className="gt-input"
+            placeholder="Mensaje a notificar (se enviará al activarse las notificaciones)"
+            value={actionMessage}
+            onChange={(e) => setActionMessage(e.target.value)}
+          />
+        )}
+
+        {actionType === RuleActionType.CREATE_CUSTOM_FIELD && (
+          <div style={{ display: 'grid', gap: 8 }}>
+            <span className="gt-muted">Campos a crear</span>
+            {cfDrafts.map((draft, i) => (
+              <div
+                key={i}
+                style={{
+                  display: 'grid',
+                  gap: 8,
+                  padding: 8,
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                }}
+              >
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    className="gt-input"
+                    style={{ flex: 1 }}
+                    placeholder={`Etiqueta del campo ${i + 1} (ej: Evidencia)`}
+                    value={draft.label}
+                    onChange={(e) => updateDraft(i, { label: e.target.value })}
+                  />
+                  {cfDrafts.length > 1 && (
+                    <button
+                      type="button"
+                      className="gt-btn"
+                      style={{ background: '#e2e8f0', color: 'var(--text)', padding: '4px 10px' }}
+                      onClick={() => removeDraft(i)}
+                    >
+                      Quitar
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <select
+                    className="gt-input"
+                    style={{ width: 160 }}
+                    value={draft.type}
+                    onChange={(e) =>
+                      updateDraft(i, { type: e.target.value as CustomFieldType })
+                    }
+                  >
+                    {(Object.keys(FIELD_TYPE_LABELS) as CustomFieldType[]).map((t) => (
+                      <option key={t} value={t}>
+                        {FIELD_TYPE_LABELS[t]}
+                      </option>
+                    ))}
+                  </select>
+                  <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={draft.required}
+                      onChange={(e) => updateDraft(i, { required: e.target.checked })}
+                    />
+                    <span className="gt-muted">Obligatorio</span>
+                  </label>
+                </div>
+                {draft.type === CustomFieldType.LIST && (
+                  <input
+                    className="gt-input"
+                    placeholder="Opciones separadas por coma (ej: Electrico, Fisico, Software)"
+                    value={draft.optionsText}
+                    onChange={(e) => updateDraft(i, { optionsText: e.target.value })}
+                  />
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              className="gt-btn"
+              style={{ background: '#e2e8f0', color: 'var(--text)', justifySelf: 'start', padding: '4px 10px' }}
+              onClick={addDraft}
+            >
+              + Agregar otro campo
+            </button>
+          </div>
+        )}
 
         <button className="gt-btn" type="submit" disabled={busy} style={{ justifySelf: 'start' }}>
           Crear regla

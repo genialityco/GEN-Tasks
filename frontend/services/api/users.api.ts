@@ -9,7 +9,7 @@ export const usersApi = {
     password?: string;
     isSuperAdmin?: boolean;
   }) => apiClient.post<User>('/users', body),
-  update: (id: string, body: { name?: string }) =>
+  update: (id: string, body: { name?: string; password?: string }) =>
     apiClient.patch<User>(`/users/${id}`, body),
   archive: (id: string) => apiClient.patch<User>(`/users/${id}/archive`),
 

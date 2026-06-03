@@ -6,12 +6,18 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthenticatedUser } from '@gen-task/shared';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { ActivitiesService } from './activities.service';
+import {
+  ActivitiesService,
+  type UploadedFile as UploadedFileType,
+} from './activities.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import {
   ChangeStatusDto,
@@ -44,6 +50,16 @@ export class ActivitiesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.activities.create(projectId, dto, user);
+  }
+
+  @Post('projects/:projectId/uploads')
+  @UseInterceptors(FileInterceptor('file'))
+  upload(
+    @Param('projectId') projectId: string,
+    @UploadedFile() file: UploadedFileType,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.activities.uploadAttachment(projectId, file, user);
   }
 
   @Get('activities/:activityId')

@@ -12,8 +12,6 @@ import {
   Paper,
   Button,
   TextInput,
-  NumberInput,
-  Select,
   Timeline,
   Collapse,
   ActionIcon,
@@ -29,15 +27,17 @@ import {
 } from "@tabler/icons-react";
 import {
   ActivityHistoryType,
-  CustomFieldType,
+  isFieldVisibleForActivity,
   StatusType,
   UserRole,
   type Activity,
-  type ActivityCustomField,
   type ActivityStatusHistory,
   type Project,
 } from "@gen-task/shared";
 import { activitiesApi } from "../../services/api/activities.api";
+import { DynamicField, normalizeType } from "./DynamicField";
+import { FileFieldUploader } from "./FileFieldUploader";
+import { isFileField } from "./InlineCellEditor";
 import { organizationsApi } from "../../services/api/organizations.api";
 import { useAsync } from "../../hooks/useAsync";
 import {
@@ -169,15 +169,17 @@ export function ActivityDetail({
     [activity.id],
   );
 
+  // La visibilidad condicional se evalua contra los valores actuales (en
+  // edicion), para que el campo aparezca/desaparezca segun se completen otros.
+  const activityForVisibility = {
+    statusId: activity.statusId,
+    customFieldValues: values,
+  };
   const editableFields = project.customFields.filter(
     (f) =>
       f.isActive &&
       !f.isArchived &&
-      ![
-        CustomFieldType.FILE,
-        CustomFieldType.IMAGE,
-        CustomFieldType.VIDEO,
-      ].includes(f.type),
+      isFieldVisibleForActivity(f, activityForVisibility),
   );
 
   const selectableStatuses = project.statuses
@@ -459,6 +461,24 @@ export function ActivityDetail({
             {editableFields.map((field) => {
               const isEditing = editingFields.has(field.key);
               const value = values[field.key];
+
+              // Campos de archivo: el uploader (con previsualizacion) siempre
+              // visible; no usa el toggle de edicion ni el formato de texto.
+              if (isFileField(field.type)) {
+                return (
+                  <FileFieldUploader
+                    key={field.id}
+                    projectId={project.id}
+                    type={normalizeType(field.type) ?? field.type}
+                    label={`${field.label}${field.required ? " *" : ""}`}
+                    value={value}
+                    onChange={(v) =>
+                      setValues((prev) => ({ ...prev, [field.key]: v }))
+                    }
+                  />
+                );
+              }
+
               return (
                 <Group
                   key={field.id}
@@ -471,6 +491,7 @@ export function ActivityDetail({
                     {isEditing ? (
                       <DynamicField
                         field={field}
+                        projectId={project.id}
                         value={value}
                         onChange={(v) =>
                           setValues((prev) => ({ ...prev, [field.key]: v }))
@@ -634,58 +655,9 @@ export function ActivityDetail({
 /** Representa un valor de campo para el historial (vacio como guion). */
 function formatValue(v: unknown): string {
   if (v === undefined || v === null || v === "") return "—";
+  if (Array.isArray(v)) {
+    if (v.length === 0) return "—";
+    return `${v.length} archivo${v.length === 1 ? "" : "s"}`;
+  }
   return String(v);
-}
-
-function DynamicField({
-  field,
-  value,
-  onChange,
-}: {
-  field: ActivityCustomField;
-  value: unknown;
-  onChange: (v: unknown) => void;
-}) {
-  const label = `${field.label}${field.required ? " *" : ""}`;
-
-  if (field.type === CustomFieldType.LIST) {
-    return (
-      <Select
-        label={label}
-        placeholder="Seleccionar..."
-        value={(value as string) ?? null}
-        onChange={(v) => onChange(v ?? undefined)}
-        data={(field.options ?? [])
-          .filter((o) => o.isActive)
-          .map((o) => ({ value: o.value, label: o.label }))}
-        clearable
-      />
-    );
-  }
-  if (field.type === CustomFieldType.NUMBER) {
-    return (
-      <NumberInput
-        label={label}
-        value={(value as number) ?? ""}
-        onChange={(v) => onChange(v === "" ? undefined : Number(v))}
-      />
-    );
-  }
-  if (field.type === CustomFieldType.DATE) {
-    return (
-      <TextInput
-        label={label}
-        type="date"
-        value={(value as string) ?? ""}
-        onChange={(e) => onChange(e.currentTarget.value)}
-      />
-    );
-  }
-  return (
-    <TextInput
-      label={label}
-      value={(value as string) ?? ""}
-      onChange={(e) => onChange(e.currentTarget.value)}
-    />
-  );
 }

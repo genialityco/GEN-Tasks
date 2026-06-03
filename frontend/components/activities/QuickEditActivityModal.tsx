@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Modal, Stack, Group, Button, TextInput, Alert, Text } from '@mantine/core';
-import { CustomFieldType, type Activity, type Project } from '@gen-task/shared';
+import { isFieldVisibleForActivity, type Activity, type Project } from '@gen-task/shared';
 import { activitiesApi } from '../../services/api/activities.api';
 import { DynamicField } from './DynamicField';
 
@@ -39,7 +39,10 @@ export function QuickEditActivityModal({
     (f) =>
       f.isActive &&
       !f.isArchived &&
-      ![CustomFieldType.FILE, CustomFieldType.IMAGE, CustomFieldType.VIDEO].includes(f.type),
+      isFieldVisibleForActivity(f, {
+        statusId: activity?.statusId,
+        customFieldValues: values,
+      }),
   );
 
   async function save() {
@@ -78,6 +81,7 @@ export function QuickEditActivityModal({
             <DynamicField
               key={field.id}
               field={field}
+              projectId={project.id}
               value={values[field.key]}
               onChange={(v) => setValues((prev) => ({ ...prev, [field.key]: v }))}
             />

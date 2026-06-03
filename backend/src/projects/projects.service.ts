@@ -8,11 +8,14 @@ import { randomUUID } from 'crypto';
 import {
   ActivityCustomField,
   AuthenticatedUser,
+  CustomFieldType,
   DEFAULT_PROJECT_STATUSES,
   FirestoreCollections,
+  LogicalOperator,
   Project,
   ProjectRule,
   ProjectStatus,
+  RuleCondition,
   UserRole,
 } from '@gen-task/shared';
 import { FirebaseService } from '../firebase/firebase.service';
@@ -347,32 +350,101 @@ export class ProjectsService {
       UserRole.SUPER_ADMIN,
       UserRole.ADMIN,
     ]);
+    const field = this.buildCustomField(dto, project.customFields);
+    await this.collection.doc(projectId).update({
+      customFields: [...project.customFields, field],
+      updatedAt: field.createdAt,
+      updatedBy: user.uid,
+    });
+    return field;
+  }
+
+  /**
+   * Construye un campo personalizado a partir de su definicion, asignando id,
+   * key estable, opciones con id y banderas por defecto. Logica compartida entre
+   * la creacion manual (Admin) y la creacion disparada por reglas.
+   */
+  private buildCustomField(
+    def: {
+      label: string;
+      type: CustomFieldType;
+      required?: boolean;
+      requiredOnStatuses?: string[];
+      visibleForRoles?: UserRole[];
+      editableForRoles?: UserRole[];
+      visibilityConditions?: RuleCondition[];
+      visibilityLogicalOperator?: LogicalOperator;
+      options?: { label: string; value: string; isActive?: boolean }[];
+      order?: number;
+    },
+    existing: ActivityCustomField[],
+  ): ActivityCustomField {
     const now = new Date().toISOString();
-    const field: ActivityCustomField = {
+    return {
       id: randomUUID(),
-      key: this.buildFieldKey(dto.label, project.customFields),
-      label: dto.label,
-      type: dto.type,
-      required: dto.required ?? false,
-      requiredOnStatuses: dto.requiredOnStatuses,
-      visibleForRoles: dto.visibleForRoles,
-      editableForRoles: dto.editableForRoles,
-      options: dto.options?.map((o) => ({
+      key: this.buildFieldKey(def.label, existing),
+      label: def.label,
+      type: def.type,
+      required: def.required ?? false,
+      requiredOnStatuses: def.requiredOnStatuses,
+      visibleForRoles: def.visibleForRoles,
+      editableForRoles: def.editableForRoles,
+      visibilityConditions: def.visibilityConditions,
+      visibilityLogicalOperator: def.visibilityLogicalOperator,
+      options: def.options?.map((o) => ({
         id: randomUUID(),
         label: o.label,
         value: o.value,
         isActive: o.isActive ?? true,
       })),
-      order: dto.order ?? project.customFields.length,
+      order: def.order ?? existing.length,
       isActive: true,
       isArchived: false,
       createdAt: now,
       updatedAt: now,
     };
-    await this.collection.doc(projectId).update({
+  }
+
+  /**
+   * Crea un campo personalizado disparado por una regla (motor de triggers). No
+   * aplica control de acceso de usuario porque la regla ya fue autorizada al
+   * configurarse. Es idempotente: si ya existe un campo activo con la misma
+   * etiqueta, no crea un duplicado. Devuelve el campo creado o `null` si no
+   * aplico (proyecto inexistente, tipo invalido o campo ya existente).
+   */
+  async createCustomFieldFromRule(
+    projectId: string,
+    def: {
+      label: string;
+      type: CustomFieldType;
+      required?: boolean;
+      options?: { label: string; value: string; isActive?: boolean }[];
+      /** El campo solo se mostrara/exigira en actividades que cumplan estas condiciones. */
+      visibilityConditions?: RuleCondition[];
+      visibilityLogicalOperator?: LogicalOperator;
+    },
+  ): Promise<ActivityCustomField | null> {
+    const label = def.label?.trim();
+    if (!label) return null;
+    if (!Object.values(CustomFieldType).includes(def.type)) return null;
+
+    const ref = this.collection.doc(projectId);
+    const project = docToEntity<Project>(await ref.get());
+    if (!project) return null;
+
+    // Idempotencia: no duplicar si ya existe un campo activo con la misma etiqueta.
+    const already = project.customFields.some(
+      (f) => !f.isArchived && f.label.trim().toLowerCase() === label.toLowerCase(),
+    );
+    if (already) return null;
+
+    const field = this.buildCustomField(
+      { ...def, label },
+      project.customFields,
+    );
+    await ref.update({
       customFields: [...project.customFields, field],
-      updatedAt: now,
-      updatedBy: user.uid,
+      updatedAt: field.createdAt,
     });
     return field;
   }
@@ -483,7 +555,10 @@ export class ProjectsService {
       UserRole.SUPER_ADMIN,
       UserRole.ADMIN,
     ]);
-    const created: ProjectRule = { id: randomUUID(), ...rule };
+    // Se aplana a objeto plano: el ValidationPipe (transform) entrega las
+    // condiciones/acciones como instancias de DTO y Firestore no serializa
+    // objetos con prototipo personalizado.
+    const created: ProjectRule = this.toPlain({ id: randomUUID(), ...rule });
     await this.collection.doc(projectId).update({
       rules: [...project.rules, created],
       updatedAt: new Date().toISOString(),
@@ -502,8 +577,9 @@ export class ProjectsService {
       UserRole.SUPER_ADMIN,
       UserRole.ADMIN,
     ]);
+    const safePatch = this.toPlain(patch);
     const rules = project.rules.map((r) =>
-      r.id === ruleId ? { ...r, ...patch } : r,
+      r.id === ruleId ? { ...r, ...safePatch } : r,
     );
     const updated = rules.find((r) => r.id === ruleId);
     if (!updated) throw new NotFoundException('Regla no encontrada.');
@@ -532,6 +608,15 @@ export class ProjectsService {
   }
 
   /** Genera una key estable a partir del label, garantizando unicidad. */
+  /**
+   * Convierte un valor a objeto plano (sin prototipos personalizados) para que
+   * Firestore pueda serializarlo. Necesario porque el ValidationPipe entrega
+   * instancias de DTO (class-transformer) en estructuras anidadas.
+   */
+  private toPlain<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
+
   private buildFieldKey(
     label: string,
     existing: ActivityCustomField[],

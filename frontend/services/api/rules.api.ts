@@ -24,6 +24,9 @@ export interface CreateRuleInput {
   conditions: RuleConditionInput[];
   logicalOperator: LogicalOperator;
   actions: RuleActionInput[];
+  /** Solo para ON_STATUS_CHANGED: acota el disparo a una transicion. */
+  fromStatusId?: string;
+  toStatusId?: string;
   isActive?: boolean;
 }
 
