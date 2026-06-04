@@ -9,6 +9,12 @@ export class AssignAdminDto {
   @MinLength(2)
   name!: string;
 
+  /** Telefono de contacto del administrador (para notificaciones por WhatsApp). */
+  @IsOptional()
+  @IsString()
+  @MinLength(7)
+  phone?: string;
+
   @IsOptional()
   @IsString()
   @MinLength(6)

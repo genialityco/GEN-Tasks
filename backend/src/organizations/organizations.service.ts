@@ -139,6 +139,7 @@ export class OrganizationsService {
       dto.email,
       dto.name,
       dto.password,
+      dto.phone,
     );
     return this.users.createMembership({
       userId: user.id,

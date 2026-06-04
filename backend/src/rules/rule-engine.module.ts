@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ActivityHistoryModule } from '../activity-history/activity-history.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { ProjectsModule } from '../projects/projects.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { RuleEngineService } from './rule-engine.service';
 
 /**
@@ -10,7 +11,12 @@ import { RuleEngineService } from './rule-engine.service';
  * controladores. WhatsappModule no depende de actividades, asi que no hay ciclo.
  */
 @Module({
-  imports: [ActivityHistoryModule, WhatsappModule, ProjectsModule],
+  imports: [
+    ActivityHistoryModule,
+    WhatsappModule,
+    ProjectsModule,
+    NotificationsModule,
+  ],
   providers: [RuleEngineService],
   exports: [RuleEngineService],
 })

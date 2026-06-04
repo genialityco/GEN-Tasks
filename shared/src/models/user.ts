@@ -9,6 +9,11 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  /**
+   * Telefono de contacto en formato internacional (ej: 573001234567). Se usa
+   * para enviar notificaciones por WhatsApp (p.ej. al asignar un responsable).
+   */
+  phone?: string;
   /** Solo presente para el SUPER_ADMIN (rol global). */
   globalRole?: UserRole.SUPER_ADMIN;
   isActive: boolean;

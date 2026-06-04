@@ -49,14 +49,28 @@ export function StatusFlowConfig({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Formulario de nueva restricción.
-  const [condition, setCondition] = useState<ConditionDraft>({
+  // Formulario de nueva restricción: una o varias condiciones combinadas.
+  const emptyCondition = (): ConditionDraft => ({
     fieldKey: '',
     operator: ConditionOperator.IS_NOT_EMPTY,
     value: '',
   });
+  const [conditions, setConditions] = useState<ConditionDraft[]>([emptyCondition()]);
+  const [logicalOperator, setLogicalOperator] = useState<LogicalOperator>(
+    LogicalOperator.AND,
+  );
   const [toStatusId, setToStatusId] = useState<string>('');
   const [message, setMessage] = useState('');
+
+  function updateCondition(index: number, next: ConditionDraft) {
+    setConditions((prev) => prev.map((c, i) => (i === index ? next : c)));
+  }
+  function addCondition() {
+    setConditions((prev) => [...prev, emptyCondition()]);
+  }
+  function removeCondition(index: number) {
+    setConditions((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
+  }
 
   // Campos disponibles para la condición: estado/nombre + campos personalizados.
   const fieldOptions: FieldOption[] = [
@@ -100,25 +114,25 @@ export function StatusFlowConfig({
   }
 
   async function addGuard() {
-    if (!condition.fieldKey) {
-      setError('Selecciona un campo para la restricción.');
+    const valid = conditions.filter((c) => c.fieldKey);
+    if (valid.length === 0) {
+      setError('Selecciona al menos un campo para la restricción.');
       return;
     }
     const guard: StatusTransitionGuard = {
       id: '',
       toStatusId: toStatusId || undefined,
-      conditions: [
-        {
-          fieldKey: condition.fieldKey,
-          operator: condition.operator,
-          value: NEEDS_VALUE.includes(condition.operator) ? condition.value : undefined,
-        },
-      ],
-      logicalOperator: LogicalOperator.AND,
+      conditions: valid.map((c) => ({
+        fieldKey: c.fieldKey,
+        operator: c.operator,
+        value: NEEDS_VALUE.includes(c.operator) ? c.value : undefined,
+      })),
+      logicalOperator,
       message: message.trim() || undefined,
     };
     await persist([...guards, guard]);
-    setCondition({ fieldKey: '', operator: ConditionOperator.IS_NOT_EMPTY, value: '' });
+    setConditions([emptyCondition()]);
+    setLogicalOperator(LogicalOperator.AND);
     setToStatusId('');
     setMessage('');
   }
@@ -152,8 +166,13 @@ export function StatusFlowConfig({
 
       <Stack gap={6}>
         {guards.map((g, idx) => {
-          const c = g.conditions[0];
-          const op = c?.operator as ConditionOperator | undefined;
+          const joiner = g.logicalOperator === LogicalOperator.OR ? ' o ' : ' y ';
+          const parts = g.conditions.map((c) => {
+            const op = c.operator as ConditionOperator;
+            const val =
+              NEEDS_VALUE.includes(op) ? ` ${String(c.value ?? '')}` : '';
+            return `${fieldLabel(c.fieldKey)} ${REQUIREMENT_OPERATOR_LABELS[op]}${val}`;
+          });
           return (
             <Group
               key={g.id || idx}
@@ -165,9 +184,7 @@ export function StatusFlowConfig({
             >
               <Text size="sm">
                 Para cambiar a <strong>{statusName(g.toStatusId)}</strong> se requiere que{' '}
-                <strong>{c ? fieldLabel(c.fieldKey) : '—'}</strong>{' '}
-                {op ? REQUIREMENT_OPERATOR_LABELS[op] : ''}{' '}
-                {op && NEEDS_VALUE.includes(op) ? <em>{String(c?.value ?? '')}</em> : ''}
+                <strong>{parts.join(joiner) || '—'}</strong>
                 {g.message ? ` — si no: “${g.message}”` : ''}
               </Text>
               <Tooltip label="Eliminar" withArrow>
@@ -186,13 +203,50 @@ export function StatusFlowConfig({
       <Divider my="xs" variant="dashed" />
 
       <Text size="sm" fw={600}>Nueva restricción</Text>
-      <ConditionBuilder
-        fieldOptions={fieldOptions}
-        condition={condition}
-        onChange={setCondition}
-        operatorLabels={REQUIREMENT_OPERATOR_LABELS}
-        fieldLabel="Campo a exigir"
-      />
+
+      {conditions.length > 1 && (
+        <Select
+          label="Combinar condiciones"
+          description="Y = deben cumplirse todas · O = basta con una."
+          data={[
+            { value: LogicalOperator.AND, label: 'Y (todas)' },
+            { value: LogicalOperator.OR, label: 'O (cualquiera)' },
+          ]}
+          value={logicalOperator}
+          onChange={(v) => v && setLogicalOperator(v as LogicalOperator)}
+          allowDeselect={false}
+          w={210}
+        />
+      )}
+
+      {conditions.map((c, i) => (
+        <Group key={i} gap="sm" align="flex-end" wrap="nowrap">
+          <ConditionBuilder
+            fieldOptions={fieldOptions}
+            condition={c}
+            onChange={(next) => updateCondition(i, next)}
+            operatorLabels={REQUIREMENT_OPERATOR_LABELS}
+            fieldLabel={conditions.length > 1 ? `Campo a exigir ${i + 1}` : 'Campo a exigir'}
+          />
+          {conditions.length > 1 && (
+            <Tooltip label="Quitar campo" withArrow>
+              <ActionIcon color="red" variant="subtle" onClick={() => removeCondition(i)} mb={6}>
+                <IconTrash size={16} />
+              </ActionIcon>
+            </Tooltip>
+          )}
+        </Group>
+      ))}
+
+      <Button
+        variant="light"
+        leftSection={<IconPlus size={14} />}
+        onClick={addCondition}
+        style={{ alignSelf: 'flex-start' }}
+      >
+        Agregar otro campo
+      </Button>
+
       <Group gap="sm" align="flex-end" wrap="wrap">
         <Select
           label="Estado destino (opcional)"

@@ -16,6 +16,7 @@ import { evaluateConditions } from '../common/rule-evaluation';
 import { ActivityHistoryService } from '../activity-history/activity-history.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { ProjectsService } from '../projects/projects.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 export interface RuleContext {
   actorId: string;
@@ -44,6 +45,7 @@ export class RuleEngineService {
     private readonly history: ActivityHistoryService,
     private readonly whatsapp: WhatsappService,
     private readonly projects: ProjectsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private get activities() {
@@ -60,6 +62,13 @@ export class RuleEngineService {
     activity: Activity,
     ctx: RuleContext,
     transition?: StatusTransition,
+    /**
+     * Solo para ON_FIELD_UPDATED: claves de los campos que cambiaron en esta
+     * actualizacion. Se usa para que una regla se dispare unicamente cuando
+     * cambia alguno de los campos que observa (los de sus condiciones), y no
+     * ante cualquier edicion de campos no relacionados.
+     */
+    changedFieldKeys?: string[],
   ): Promise<Activity> {
     const rules = (project.rules ?? []).filter(
       (r) => r.isActive && r.event === event,
@@ -71,6 +80,14 @@ export class RuleEngineService {
       if (event === RuleEvent.ON_STATUS_CHANGED && !this.matchesTransition(rule, transition)) {
         continue;
       }
+      // ON_FIELD_UPDATED: la regla solo se dispara si cambio alguno de los
+      // campos que observa (evita re-disparos al editar campos no relacionados).
+      if (
+        event === RuleEvent.ON_FIELD_UPDATED &&
+        !this.watchesAChangedField(rule, project, changedFieldKeys)
+      ) {
+        continue;
+      }
       const matches = evaluateConditions(
         rule.conditions,
         rule.logicalOperator,
@@ -79,7 +96,14 @@ export class RuleEngineService {
       if (!matches) continue;
       this.logger.debug(`Regla "${rule.name}" disparada (${event}).`);
       for (const action of rule.actions) {
-        current = await this.executeAction(rule, action.type, action.payload, current, ctx);
+        current = await this.executeAction(
+          rule,
+          action.type,
+          action.payload,
+          current,
+          ctx,
+          project,
+        );
       }
     }
     return current;
@@ -105,12 +129,46 @@ export class RuleEngineService {
     return true;
   }
 
+  /**
+   * Decide si una regla ON_FIELD_UPDATED debe ejecutarse en esta actualizacion.
+   *
+   * La regla "observa" los campos personalizados referenciados en sus condiciones.
+   * Solo se dispara si alguno de esos campos esta entre los que cambiaron, de modo
+   * que editar un campo no relacionado no vuelve a ejecutar la accion.
+   *
+   * Casos borde:
+   *  - Sin info de campos cambiados (`undefined`): se mantiene el comportamiento
+   *    previo (no filtra) para no romper otros llamadores.
+   *  - Regla sin condiciones sobre campos personalizados (p.ej. solo sobre el
+   *    estado, o sin condiciones): no observa un campo concreto, por lo que se
+   *    permite y queda a cargo de `evaluateConditions`.
+   */
+  private watchesAChangedField(
+    rule: ProjectRule,
+    project: Project,
+    changedFieldKeys?: string[],
+  ): boolean {
+    if (!changedFieldKeys) return true;
+    const customKeys = new Set(
+      (project.customFields ?? [])
+        .filter((f) => !f.isArchived)
+        .map((f) => f.key),
+    );
+    const watched = (rule.conditions ?? [])
+      .map((c) => c.fieldKey)
+      .filter((k) => customKeys.has(k));
+    if (watched.length === 0) return true;
+    const changed = new Set(changedFieldKeys);
+    return watched.some((k) => changed.has(k));
+  }
+
   private async executeAction(
     rule: ProjectRule,
     type: RuleActionType,
     payload: Record<string, unknown>,
     activity: Activity,
     ctx: RuleContext,
+    project: Project,
   ): Promise<Activity> {
     switch (type) {
       case RuleActionType.REGISTER_HISTORY_EVENT:
@@ -136,7 +194,14 @@ export class RuleEngineService {
           responsibleIds,
           updatedAt: new Date().toISOString(),
         });
-        return { ...activity, responsibleIds };
+        const next = { ...activity, responsibleIds };
+        // Notifica al responsable recien asignado por la regla (best effort).
+        await this.notifications.notifyResponsibleAssigned({
+          activity: next,
+          project,
+          responsibleUserIds: [responsibleId],
+        });
+        return next;
       }
 
       case RuleActionType.CHANGE_STATUS: {

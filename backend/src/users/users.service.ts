@@ -60,6 +60,7 @@ export class UsersService {
     const profile: Omit<User, 'id'> = {
       email: dto.email,
       name: dto.name,
+      ...(dto.phone ? { phone: dto.phone } : {}),
       ...(dto.isSuperAdmin ? { globalRole: UserRole.SUPER_ADMIN } : {}),
       isActive: true,
       isArchived: false,
@@ -134,18 +135,30 @@ export class UsersService {
     email: string,
     name: string,
     password?: string,
+    phone?: string,
   ): Promise<User> {
     try {
       const authUser = await this.firebase.auth.getUserByEmail(email);
       const profile = docToEntity<User>(
         await this.users.doc(authUser.uid).get(),
       );
-      if (profile) return profile;
+      if (profile) {
+        // Si el usuario ya existe pero no tenia telefono, lo completamos.
+        if (phone && profile.phone !== phone) {
+          await this.users.doc(authUser.uid).update({
+            phone,
+            updatedAt: new Date().toISOString(),
+          });
+          return { ...profile, phone };
+        }
+        return profile;
+      }
       // Existe en Auth pero no tenia perfil en Firestore: lo creamos.
       const now = new Date().toISOString();
       const data: Omit<User, 'id'> = {
         email,
         name,
+        ...(phone ? { phone } : {}),
         isActive: true,
         isArchived: false,
         createdAt: now,
@@ -155,7 +168,7 @@ export class UsersService {
       return { id: authUser.uid, ...data };
     } catch (err) {
       if ((err as { code?: string }).code === 'auth/user-not-found') {
-        return this.create({ email, name, password });
+        return this.create({ email, name, password, phone });
       }
       throw err;
     }
@@ -166,10 +179,13 @@ export class UsersService {
     if (dto.password) {
       await this.firebase.auth.updateUser(id, { password: dto.password });
     }
-    await this.users.doc(id).update({
-      ...dto,
+    // La contrasena se gestiona en Firebase Auth; nunca se persiste en Firestore.
+    const patch: Record<string, unknown> = {
       updatedAt: new Date().toISOString(),
-    });
+    };
+    if (dto.name !== undefined) patch.name = dto.name;
+    if (dto.phone !== undefined) patch.phone = dto.phone;
+    await this.users.doc(id).update(patch);
     return this.findOne(id);
   }
 

@@ -15,6 +15,12 @@ export class CreateUserDto {
   @MinLength(2)
   name!: string;
 
+  /** Telefono de contacto (para notificaciones por WhatsApp). */
+  @IsOptional()
+  @IsString()
+  @MinLength(7)
+  phone?: string;
+
   /** Contrasena inicial; opcional si se usara enlace de invitacion. */
   @IsOptional()
   @IsString()

@@ -38,17 +38,19 @@ export function AssignAdminPanel({
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
-  function openCreate(prefill?: { email?: string; name?: string }) {
+  function openCreate(prefill?: { email?: string; name?: string; phone?: string }) {
     setMode('create');
     setEditingUserId(null);
     setEmail(prefill?.email ?? '');
     setName(prefill?.name ?? '');
+    setPhone(prefill?.phone ?? '');
     setPassword('');
     setError(null);
     setOk(null);
@@ -62,6 +64,7 @@ export function AssignAdminPanel({
     setEditingUserId(userId);
     setEmail(user.email);
     setName(user.name);
+    setPhone(user.phone ?? '');
     setPassword('');
     setError(null);
     setOk(null);
@@ -94,6 +97,7 @@ export function AssignAdminPanel({
         await organizationsApi.assignAdmin(organization.id, {
           email: email.trim(),
           name: name.trim(),
+          ...(phone.trim() ? { phone: phone.trim() } : {}),
           ...(password.trim() ? { password: password.trim() } : {}),
         });
         setOk('Administrador asignado.');
@@ -101,6 +105,7 @@ export function AssignAdminPanel({
         if (!editingUserId) throw new Error('No se encontró el administrador a editar.');
         await usersApi.update(editingUserId, {
           name: name.trim(),
+          phone: phone.trim(),
           ...(password.trim() ? { password: password.trim() } : {}),
         });
         setOk('Administrador actualizado.');
@@ -108,6 +113,7 @@ export function AssignAdminPanel({
       setModalOpen(false);
       setEmail('');
       setName('');
+      setPhone('');
       setPassword('');
       setEditingUserId(null);
       reloadUsers();
@@ -153,6 +159,7 @@ export function AssignAdminPanel({
                 <Group gap="xs" wrap="nowrap">
                   <Text>{u?.name ?? id}</Text>
                   {u?.email && <Text size="sm" c="dimmed">{u.email}</Text>}
+                  {u?.phone && <Text size="sm" c="dimmed">📱 {u.phone}</Text>}
                   <Badge size="xs" variant="light" color="blue">Admin</Badge>
                 </Group>
                 <Group gap={4} wrap="nowrap">
@@ -226,6 +233,15 @@ export function AssignAdminPanel({
             onChange={(e) => setName(e.currentTarget.value)}
             required
           />
+          <TextInput
+            label="Teléfono (celular)"
+            description="Se usa para enviar notificaciones por WhatsApp. Ej: 3001234567 o 573001234567"
+            placeholder="3001234567"
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.currentTarget.value)}
+            required={mode === 'create'}
+          />
           <PasswordInput
             label={mode === 'create' ? 'Contraseña' : 'Nueva contraseña (opcional)'}
             placeholder={mode === 'create' ? 'Mínimo 6 caracteres' : 'Dejar vacío para no cambiarla'}
@@ -243,7 +259,11 @@ export function AssignAdminPanel({
             <Button
               onClick={saveAdmin}
               loading={busy}
-              disabled={!email.trim() || !name.trim() || (mode === 'create' && !password.trim())}
+              disabled={
+                !email.trim() ||
+                !name.trim() ||
+                (mode === 'create' && (!phone.trim() || !password.trim()))
+              }
             >
               {mode === 'create' ? 'Crear' : 'Guardar cambios'}
             </Button>

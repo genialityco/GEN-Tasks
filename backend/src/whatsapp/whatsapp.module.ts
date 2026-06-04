@@ -16,6 +16,6 @@ import { MessageTemplatesService } from './message-templates.service';
     OrganizationResolverService,
     MessageTemplatesService,
   ],
-  exports: [WhatsappService],
+  exports: [WhatsappService, WhatsappCloudApiService, MessageTemplatesService],
 })
 export class WhatsappModule {}

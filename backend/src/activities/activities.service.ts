@@ -37,6 +37,7 @@ import { ProjectsService } from '../projects/projects.service';
 import { GestoresService } from '../gestores/gestores.service';
 import { ActivityHistoryService } from '../activity-history/activity-history.service';
 import { RuleEngineService } from '../rules/rule-engine.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { StorageService } from '../storage/storage.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import {
@@ -61,6 +62,7 @@ export class ActivitiesService {
     private readonly gestores: GestoresService,
     private readonly history: ActivityHistoryService,
     private readonly ruleEngine: RuleEngineService,
+    private readonly notifications: NotificationsService,
     private readonly storage: StorageService,
   ) {}
 
@@ -189,6 +191,13 @@ export class ActivitiesService {
       changedByRole: role ?? UserRole.ADMIN,
     });
 
+    // Notifica a los responsables asignados en la creacion (best effort).
+    await this.notifications.notifyResponsibleAssigned({
+      activity: { id: ref.id, ...data },
+      project,
+      responsibleUserIds: data.responsibleIds,
+    });
+
     // Triggers: ON_ACTIVITY_CREATED.
     const created = await this.ruleEngine.runForEvent(
       RuleEvent.ON_ACTIVITY_CREATED,
@@ -221,6 +230,14 @@ export class ActivitiesService {
     if (dto.scheduledDate !== undefined) patch.scheduledDate = dto.scheduledDate;
     if (dto.responsibleIds !== undefined) patch.responsibleIds = dto.responsibleIds;
 
+    // Responsables recien agregados (para notificarles tras guardar).
+    const newResponsibleIds =
+      dto.responsibleIds !== undefined
+        ? dto.responsibleIds.filter(
+            (id) => !activity.responsibleIds.includes(id),
+          )
+        : [];
+
     // Calcula el diff de campos personalizados para registrarlo en el historial.
     const fieldChanges = dto.customFieldValues
       ? this.diffCustomFields(project, activity, dto.customFieldValues)
@@ -248,6 +265,15 @@ export class ActivitiesService {
 
     const updated = await this.loadAccessibleActivity(activityId, user);
 
+    // Notifica a los responsables recien asignados (best effort).
+    if (newResponsibleIds.length > 0) {
+      await this.notifications.notifyResponsibleAssigned({
+        activity: updated,
+        project,
+        responsibleUserIds: newResponsibleIds,
+      });
+    }
+
     // Triggers: ON_FIELD_UPDATED (solo si efectivamente cambiaron campos).
     if (fieldChanges.length > 0) {
       return this.ruleEngine.runForEvent(
@@ -255,6 +281,9 @@ export class ActivitiesService {
         project,
         updated,
         { actorId: user.uid, actorRole: role ?? UserRole.ADMIN },
+        undefined,
+        // Solo las reglas que observan un campo recien cambiado se disparan.
+        fieldChanges.map((c) => c.fieldKey),
       );
     }
     return updated;

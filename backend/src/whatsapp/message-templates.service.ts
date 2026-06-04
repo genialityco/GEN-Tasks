@@ -23,6 +23,25 @@ export class MessageTemplatesService {
       .then((snap) => snapshotToEntities<MessageTemplate>(snap));
   }
 
+  /**
+   * Busca la plantilla activa de una organizacion por su `key` logica (ej:
+   * RESPONSIBLE_ASSIGNED). Devuelve null si no existe o esta inactiva, para que
+   * el llamador use un cuerpo por defecto.
+   */
+  async getByKey(
+    organizationId: string,
+    key: string,
+  ): Promise<MessageTemplate | null> {
+    const snap = await this.collection
+      .where('organizationId', '==', organizationId)
+      .where('key', '==', key)
+      .where('isActive', '==', true)
+      .limit(1)
+      .get();
+    if (snap.empty) return null;
+    return docToEntity<MessageTemplate>(snap.docs[0]);
+  }
+
   async create(
     organizationId: string,
     input: { key: string; name: string; body: string },

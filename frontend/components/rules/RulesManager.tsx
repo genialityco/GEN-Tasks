@@ -32,6 +32,7 @@ import { useAsync } from '../../hooks/useAsync';
 import {
   ConditionBuilder,
   customFieldOptions,
+  NEEDS_VALUE,
   type ConditionDraft,
 } from '../projects/ConditionBuilder';
 
@@ -82,6 +83,70 @@ function emptyFieldDraft(): FieldDraft {
 }
 
 /**
+ * Borrador de una accion de la regla. Una regla puede tener varias acciones; cada
+ * una guarda todos sus posibles parametros y solo se usa el que aplica a su tipo.
+ */
+interface ActionDraft {
+  type: RuleActionType;
+  /** Mensaje/comentario (SEND_WHATSAPP, REQUEST_HOST_INFORMATION, REGISTER_HISTORY_EVENT, ASSIGN_RESPONSIBLE). */
+  message: string;
+  /** Estado destino (CHANGE_STATUS). */
+  statusId: string;
+  /** Usuario a notificar/asignar (ASSIGN_RESPONSIBLE). */
+  responsibleId: string;
+  /** Campos a crear (CREATE_CUSTOM_FIELD). */
+  cfDrafts: FieldDraft[];
+}
+
+function emptyActionDraft(): ActionDraft {
+  return {
+    type: RuleActionType.REGISTER_HISTORY_EVENT,
+    message: '',
+    statusId: '',
+    responsibleId: '',
+    cfDrafts: [emptyFieldDraft()],
+  };
+}
+
+/** Convierte un borrador de accion al formato que espera el backend ({ type, payload }). */
+function buildActionPayload(a: ActionDraft): {
+  type: RuleActionType;
+  payload: Record<string, unknown>;
+} {
+  const payload: Record<string, unknown> = {};
+  if (MESSAGE_ACTIONS.includes(a.type)) {
+    payload.message = a.message;
+  }
+  if (a.type === RuleActionType.CHANGE_STATUS) {
+    payload.statusId = a.statusId;
+  }
+  if (a.type === RuleActionType.ASSIGN_RESPONSIBLE) {
+    payload.responsibleId = a.responsibleId;
+    // Mensaje que se notificara al responsable asignado.
+    payload.message = a.message;
+  }
+  if (a.type === RuleActionType.CREATE_CUSTOM_FIELD) {
+    payload.fields = a.cfDrafts
+      .filter((d) => d.label.trim())
+      .map((d) => ({
+        label: d.label.trim(),
+        type: d.type,
+        required: d.required,
+        ...(d.type === CustomFieldType.LIST
+          ? {
+              options: d.optionsText
+                .split(',')
+                .map((o) => o.trim())
+                .filter(Boolean)
+                .map((o) => ({ label: o, value: o })),
+            }
+          : {}),
+      }));
+  }
+  return { type: a.type, payload };
+}
+
+/**
  * Seccion de automatizaciones (triggers) del proyecto. Crea reglas con un evento,
  * una condicion opcional sobre un campo y una accion. La evaluacion y ejecucion
  * la realiza el motor de reglas del backend al crear/cambiar estado. Se embebe
@@ -112,24 +177,21 @@ export function RulesManager({
 
   const [name, setName] = useState('');
   const [event, setEvent] = useState<RuleEvent>(RuleEvent.ON_STATUS_CHANGED);
-  const [condition, setCondition] = useState<ConditionDraft>({
+  // Una regla puede combinar varias condiciones (Y/O).
+  const emptyCondition = (): ConditionDraft => ({
     fieldKey: '',
     operator: ConditionOperator.EQUALS,
     value: '',
   });
-  const [actionType, setActionType] = useState<RuleActionType>(
-    RuleActionType.REGISTER_HISTORY_EVENT,
+  const [conditions, setConditions] = useState<ConditionDraft[]>([emptyCondition()]);
+  const [conditionOperator, setConditionOperator] = useState<LogicalOperator>(
+    LogicalOperator.AND,
   );
-  const [actionMessage, setActionMessage] = useState('');
-  const [actionStatusId, setActionStatusId] = useState('');
-  const [actionResponsibleId, setActionResponsibleId] = useState('');
   // Transicion opcional para el evento "Al cambiar de estado".
   const [fromStatusId, setFromStatusId] = useState('');
   const [toStatusId, setToStatusId] = useState('');
-  // Configuracion de los campos a crear (accion CREATE_CUSTOM_FIELD): permite
-  // definir uno o varios campos por accion, con la misma logica que el gestor
-  // de campos personalizados.
-  const [cfDrafts, setCfDrafts] = useState<FieldDraft[]>([emptyFieldDraft()]);
+  // Una regla puede ejecutar varias acciones; cada una se edita por separado.
+  const [actions, setActions] = useState<ActionDraft[]>([emptyActionDraft()]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -141,52 +203,19 @@ export function RulesManager({
     setBusy(true);
     setError(null);
     try {
-      const conditions = condition.fieldKey
-        ? [
-            {
-              fieldKey: condition.fieldKey,
-              operator: condition.operator,
-              value: condition.value || undefined,
-            },
-          ]
-        : [];
-      const payload: Record<string, unknown> = {};
-      if (MESSAGE_ACTIONS.includes(actionType)) {
-        payload.message = actionMessage;
-      }
-      if (actionType === RuleActionType.CHANGE_STATUS) {
-        payload.statusId = actionStatusId;
-      }
-      if (actionType === RuleActionType.ASSIGN_RESPONSIBLE) {
-        payload.responsibleId = actionResponsibleId;
-        // Mensaje que se notificara al responsable cuando exista el servicio
-        // de notificaciones.
-        payload.message = actionMessage;
-      }
-      if (actionType === RuleActionType.CREATE_CUSTOM_FIELD) {
-        payload.fields = cfDrafts
-          .filter((d) => d.label.trim())
-          .map((d) => ({
-            label: d.label.trim(),
-            type: d.type,
-            required: d.required,
-            ...(d.type === CustomFieldType.LIST
-              ? {
-                  options: d.optionsText
-                    .split(',')
-                    .map((o) => o.trim())
-                    .filter(Boolean)
-                    .map((o) => ({ label: o, value: o })),
-                }
-              : {}),
-          }));
-      }
+      const builtConditions = conditions
+        .filter((c) => c.fieldKey)
+        .map((c) => ({
+          fieldKey: c.fieldKey,
+          operator: c.operator,
+          value: NEEDS_VALUE.includes(c.operator) ? c.value || undefined : undefined,
+        }));
       await rulesApi.create(projectId, {
         name: name.trim(),
         event,
-        conditions,
-        logicalOperator: LogicalOperator.AND,
-        actions: [{ type: actionType, payload }],
+        conditions: builtConditions,
+        logicalOperator: conditionOperator,
+        actions: actions.map(buildActionPayload),
         // La transicion solo aplica al evento de cambio de estado.
         ...(event === RuleEvent.ON_STATUS_CHANGED
           ? {
@@ -196,13 +225,11 @@ export function RulesManager({
           : {}),
       });
       setName('');
-      setCondition({ fieldKey: '', operator: ConditionOperator.EQUALS, value: '' });
-      setActionMessage('');
-      setActionResponsibleId('');
-      setActionStatusId('');
+      setConditions([emptyCondition()]);
+      setConditionOperator(LogicalOperator.AND);
       setFromStatusId('');
       setToStatusId('');
-      setCfDrafts([emptyFieldDraft()]);
+      setActions([emptyActionDraft()]);
       reload();
     } catch (err) {
       setError((err as Error).message);
@@ -216,15 +243,56 @@ export function RulesManager({
     reload();
   }
 
-  // --- Borradores de campos (accion CREATE_CUSTOM_FIELD) ---
-  function updateDraft(index: number, patch: Partial<FieldDraft>) {
-    setCfDrafts((prev) => prev.map((d, i) => (i === index ? { ...d, ...patch } : d)));
+  // --- Condiciones ---
+  function updateCondition(index: number, next: ConditionDraft) {
+    setConditions((prev) => prev.map((c, i) => (i === index ? next : c)));
   }
-  function addDraft() {
-    setCfDrafts((prev) => [...prev, emptyFieldDraft()]);
+  function addCondition() {
+    setConditions((prev) => [...prev, emptyCondition()]);
   }
-  function removeDraft(index: number) {
-    setCfDrafts((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
+  function removeCondition(index: number) {
+    setConditions((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
+  }
+
+  // --- Borradores de acciones ---
+  function updateAction(index: number, patch: Partial<ActionDraft>) {
+    setActions((prev) => prev.map((a, i) => (i === index ? { ...a, ...patch } : a)));
+  }
+  function addAction() {
+    setActions((prev) => [...prev, emptyActionDraft()]);
+  }
+  function removeAction(index: number) {
+    setActions((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
+  }
+
+  // --- Borradores de campos dentro de una accion CREATE_CUSTOM_FIELD ---
+  function updateDraft(actionIndex: number, draftIndex: number, patch: Partial<FieldDraft>) {
+    setActions((prev) =>
+      prev.map((a, i) =>
+        i === actionIndex
+          ? {
+              ...a,
+              cfDrafts: a.cfDrafts.map((d, j) => (j === draftIndex ? { ...d, ...patch } : d)),
+            }
+          : a,
+      ),
+    );
+  }
+  function addDraft(actionIndex: number) {
+    setActions((prev) =>
+      prev.map((a, i) =>
+        i === actionIndex ? { ...a, cfDrafts: [...a.cfDrafts, emptyFieldDraft()] } : a,
+      ),
+    );
+  }
+  function removeDraft(actionIndex: number, draftIndex: number) {
+    setActions((prev) =>
+      prev.map((a, i) =>
+        i === actionIndex && a.cfDrafts.length > 1
+          ? { ...a, cfDrafts: a.cfDrafts.filter((_, j) => j !== draftIndex) }
+          : a,
+      ),
+    );
   }
 
   return (
@@ -316,135 +384,212 @@ export function RulesManager({
           <Text size="xs" c="dimmed">
             Condición (opcional): la acción solo se ejecuta si la actividad la cumple.
           </Text>
-          <ConditionBuilder
-            fieldOptions={customFieldOptions(fields)}
-            condition={condition}
-            onChange={setCondition}
-            emptyFieldOption="— sin condición —"
-          />
 
-          <Group gap="sm" align="flex-end" wrap="wrap">
+          {conditions.length > 1 && (
             <Select
-              label="Acción"
-              data={(Object.keys(ACTION_LABELS) as RuleActionType[]).map((a) => ({
-                value: a,
-                label: ACTION_LABELS[a],
-              }))}
-              value={actionType}
-              onChange={(v) => v && setActionType(v as RuleActionType)}
+              label="Combinar condiciones"
+              description="Y = deben cumplirse todas · O = basta con una."
+              data={[
+                { value: LogicalOperator.AND, label: 'Y (todas)' },
+                { value: LogicalOperator.OR, label: 'O (cualquiera)' },
+              ]}
+              value={conditionOperator}
+              onChange={(v) => v && setConditionOperator(v as LogicalOperator)}
               allowDeselect={false}
               w={210}
             />
-            {actionType === RuleActionType.CHANGE_STATUS && (
-              <Select
-                label="Estado destino"
-                placeholder="Selecciona..."
-                data={statusSelectData}
-                value={actionStatusId || null}
-                onChange={(v) => setActionStatusId(v ?? '')}
-                w={210}
-              />
-            )}
-            {actionType === RuleActionType.ASSIGN_RESPONSIBLE && (
-              <Select
-                label="Usuario a notificar"
-                placeholder="Selecciona..."
-                data={(members ?? []).map((m) => ({
-                  value: m.userId,
-                  label: `${m.name} · ${m.role === UserRole.ADMIN ? 'Admin' : 'Gestor'}`,
-                }))}
-                value={actionResponsibleId || null}
-                onChange={(v) => setActionResponsibleId(v ?? '')}
-                searchable
-                w={260}
-              />
-            )}
-            {MESSAGE_ACTIONS.includes(actionType) && (
-              <TextInput
-                label="Mensaje / comentario"
-                value={actionMessage}
-                onChange={(e) => setActionMessage(e.currentTarget.value)}
-                w={320}
-              />
-            )}
-          </Group>
-
-          {actionType === RuleActionType.ASSIGN_RESPONSIBLE && (
-            <TextInput
-              label="Mensaje a notificar"
-              placeholder="Se enviará al activarse las notificaciones"
-              value={actionMessage}
-              onChange={(e) => setActionMessage(e.currentTarget.value)}
-              w={420}
-            />
           )}
 
-          {actionType === RuleActionType.CREATE_CUSTOM_FIELD && (
-            <Stack gap="sm">
-              <Text size="sm" fw={600}>Campos a crear</Text>
-              {cfDrafts.map((draft, i) => (
-                <Stack
-                  key={i}
-                  gap="sm"
-                  p="sm"
-                  style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 6 }}
-                >
-                  <Group gap="sm" align="flex-end" wrap="nowrap">
-                    <TextInput
-                      label={`Etiqueta del campo ${i + 1}`}
-                      placeholder="Ej: Evidencia"
-                      value={draft.label}
-                      onChange={(e) => updateDraft(i, { label: e.currentTarget.value })}
-                      style={{ flex: 1 }}
-                    />
-                    {cfDrafts.length > 1 && (
-                      <Tooltip label="Quitar campo" withArrow>
-                        <ActionIcon color="red" variant="subtle" onClick={() => removeDraft(i)}>
-                          <IconTrash size={16} />
-                        </ActionIcon>
-                      </Tooltip>
-                    )}
-                  </Group>
-                  <Group gap="md" align="center" wrap="wrap">
-                    <Select
-                      label="Tipo"
-                      data={(Object.keys(FIELD_TYPE_LABELS) as CustomFieldType[]).map((t) => ({
-                        value: t,
-                        label: FIELD_TYPE_LABELS[t],
-                      }))}
-                      value={draft.type}
-                      onChange={(v) => v && updateDraft(i, { type: v as CustomFieldType })}
-                      allowDeselect={false}
-                      w={180}
-                    />
-                    <Checkbox
-                      label="Obligatorio"
-                      checked={draft.required}
-                      onChange={(e) => updateDraft(i, { required: e.currentTarget.checked })}
-                      mt="lg"
-                    />
-                  </Group>
-                  {draft.type === CustomFieldType.LIST && (
-                    <TextInput
-                      label="Opciones"
-                      placeholder="Separadas por coma (ej: Electrico, Fisico, Software)"
-                      value={draft.optionsText}
-                      onChange={(e) => updateDraft(i, { optionsText: e.currentTarget.value })}
-                    />
-                  )}
+          {conditions.map((c, i) => (
+            <Group key={i} gap="sm" align="flex-end" wrap="nowrap">
+              <ConditionBuilder
+                fieldOptions={customFieldOptions(fields)}
+                condition={c}
+                onChange={(next) => updateCondition(i, next)}
+                emptyFieldOption="— sin condición —"
+              />
+              {conditions.length > 1 && (
+                <Tooltip label="Quitar condición" withArrow>
+                  <ActionIcon color="red" variant="subtle" onClick={() => removeCondition(i)} mb={6}>
+                    <IconTrash size={16} />
+                  </ActionIcon>
+                </Tooltip>
+              )}
+            </Group>
+          ))}
+
+          <Button
+            type="button"
+            variant="light"
+            leftSection={<IconPlus size={14} />}
+            onClick={addCondition}
+            style={{ alignSelf: 'flex-start' }}
+          >
+            Agregar otra condición
+          </Button>
+
+          <Text size="sm" fw={600}>Acciones</Text>
+          <Text size="xs" c="dimmed">
+            Todas las acciones se ejecutan, en orden, cuando la regla se dispara.
+          </Text>
+
+          {actions.map((act, ai) => (
+            <Stack
+              key={ai}
+              gap="sm"
+              p="sm"
+              style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 6 }}
+            >
+              <Group gap="sm" align="flex-end" wrap="wrap">
+                <Select
+                  label={`Acción ${ai + 1}`}
+                  data={(Object.keys(ACTION_LABELS) as RuleActionType[]).map((a) => ({
+                    value: a,
+                    label: ACTION_LABELS[a],
+                  }))}
+                  value={act.type}
+                  onChange={(v) => v && updateAction(ai, { type: v as RuleActionType })}
+                  allowDeselect={false}
+                  w={210}
+                />
+                {act.type === RuleActionType.CHANGE_STATUS && (
+                  <Select
+                    label="Estado destino"
+                    placeholder="Selecciona..."
+                    data={statusSelectData}
+                    value={act.statusId || null}
+                    onChange={(v) => updateAction(ai, { statusId: v ?? '' })}
+                    w={210}
+                  />
+                )}
+                {act.type === RuleActionType.ASSIGN_RESPONSIBLE && (
+                  <Select
+                    label="Usuario a notificar"
+                    placeholder="Selecciona..."
+                    data={(members ?? []).map((m) => ({
+                      value: m.userId,
+                      label: `${m.name} · ${m.role === UserRole.ADMIN ? 'Admin' : 'Gestor'}`,
+                    }))}
+                    value={act.responsibleId || null}
+                    onChange={(v) => updateAction(ai, { responsibleId: v ?? '' })}
+                    searchable
+                    w={260}
+                  />
+                )}
+                {MESSAGE_ACTIONS.includes(act.type) && (
+                  <TextInput
+                    label="Mensaje / comentario"
+                    value={act.message}
+                    onChange={(e) => updateAction(ai, { message: e.currentTarget.value })}
+                    w={320}
+                  />
+                )}
+                {actions.length > 1 && (
+                  <Tooltip label="Quitar acción" withArrow>
+                    <ActionIcon
+                      color="red"
+                      variant="subtle"
+                      onClick={() => removeAction(ai)}
+                      mb={6}
+                    >
+                      <IconTrash size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+              </Group>
+
+              {act.type === RuleActionType.ASSIGN_RESPONSIBLE && (
+                <TextInput
+                  label="Mensaje a notificar"
+                  placeholder="Se enviará al responsable por WhatsApp"
+                  value={act.message}
+                  onChange={(e) => updateAction(ai, { message: e.currentTarget.value })}
+                  w={420}
+                />
+              )}
+
+              {act.type === RuleActionType.CREATE_CUSTOM_FIELD && (
+                <Stack gap="sm">
+                  <Text size="sm" fw={600}>Campos a crear</Text>
+                  {act.cfDrafts.map((draft, i) => (
+                    <Stack
+                      key={i}
+                      gap="sm"
+                      p="sm"
+                      style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 6 }}
+                    >
+                      <Group gap="sm" align="flex-end" wrap="nowrap">
+                        <TextInput
+                          label={`Etiqueta del campo ${i + 1}`}
+                          placeholder="Ej: Evidencia"
+                          value={draft.label}
+                          onChange={(e) => updateDraft(ai, i, { label: e.currentTarget.value })}
+                          style={{ flex: 1 }}
+                        />
+                        {act.cfDrafts.length > 1 && (
+                          <Tooltip label="Quitar campo" withArrow>
+                            <ActionIcon
+                              color="red"
+                              variant="subtle"
+                              onClick={() => removeDraft(ai, i)}
+                            >
+                              <IconTrash size={16} />
+                            </ActionIcon>
+                          </Tooltip>
+                        )}
+                      </Group>
+                      <Group gap="md" align="center" wrap="wrap">
+                        <Select
+                          label="Tipo"
+                          data={(Object.keys(FIELD_TYPE_LABELS) as CustomFieldType[]).map((t) => ({
+                            value: t,
+                            label: FIELD_TYPE_LABELS[t],
+                          }))}
+                          value={draft.type}
+                          onChange={(v) => v && updateDraft(ai, i, { type: v as CustomFieldType })}
+                          allowDeselect={false}
+                          w={180}
+                        />
+                        <Checkbox
+                          label="Obligatorio"
+                          checked={draft.required}
+                          onChange={(e) => updateDraft(ai, i, { required: e.currentTarget.checked })}
+                          mt="lg"
+                        />
+                      </Group>
+                      {draft.type === CustomFieldType.LIST && (
+                        <TextInput
+                          label="Opciones"
+                          placeholder="Separadas por coma (ej: Electrico, Fisico, Software)"
+                          value={draft.optionsText}
+                          onChange={(e) => updateDraft(ai, i, { optionsText: e.currentTarget.value })}
+                        />
+                      )}
+                    </Stack>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="light"
+                    leftSection={<IconPlus size={14} />}
+                    onClick={() => addDraft(ai)}
+                    style={{ alignSelf: 'flex-start' }}
+                  >
+                    Agregar otro campo
+                  </Button>
                 </Stack>
-              ))}
-              <Button
-                type="button"
-                variant="light"
-                leftSection={<IconPlus size={14} />}
-                onClick={addDraft}
-                style={{ alignSelf: 'flex-start' }}
-              >
-                Agregar otro campo
-              </Button>
+              )}
             </Stack>
-          )}
+          ))}
+
+          <Button
+            type="button"
+            variant="light"
+            leftSection={<IconPlus size={14} />}
+            onClick={addAction}
+            style={{ alignSelf: 'flex-start' }}
+          >
+            Agregar otra acción
+          </Button>
 
           <Button type="submit" loading={busy} style={{ alignSelf: 'flex-start' }}>
             Crear automatización

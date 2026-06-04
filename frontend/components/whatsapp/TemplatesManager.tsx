@@ -50,6 +50,23 @@ export function TemplatesManager({ organizationId }: { organizationId: string })
 
   return (
     <div style={{ display: 'grid', gap: 16, maxWidth: 700 }}>
+      <div className="gt-card" style={{ display: 'grid', gap: 6 }}>
+        <strong>Notificaciones automáticas</strong>
+        <span className="gt-muted">
+          Para personalizar el mensaje que reciben los responsables al ser
+          asignados a una actividad, crea una plantilla con la clave{' '}
+          <code>RESPONSIBLE_ASSIGNED</code>. Si no existe, se usa un texto por
+          defecto. Placeholders disponibles:
+        </span>
+        <span className="gt-muted" style={{ fontSize: 13 }}>
+          <code>{'{{responsibleName}}'}</code>{' '}
+          <code>{'{{activityName}}'}</code>{' '}
+          <code>{'{{statusName}}'}</code>{' '}
+          <code>{'{{projectName}}'}</code>{' '}
+          <code>{'{{organizationName}}'}</code>
+        </span>
+      </div>
+
       <div className="gt-card" style={{ display: 'grid', gap: 8 }}>
         <strong>Plantillas existentes</strong>
         {loading && <p>Cargando...</p>}

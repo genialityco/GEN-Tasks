@@ -20,7 +20,7 @@ export const organizationsApi = {
     apiClient.patch<Organization>(`/organizations/${id}/features`, { features }),
   assignAdmin: (
     id: string,
-    body: { email: string; name: string; password?: string },
+    body: { email: string; name: string; phone?: string; password?: string },
   ) => apiClient.post(`/organizations/${id}/admins`, body),
   removeAdmin: (id: string, userId: string) =>
     apiClient.delete<Organization>(`/organizations/${id}/admins/${userId}`),
