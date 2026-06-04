@@ -200,7 +200,7 @@ export function StatusesManager({
                       {s.type === StatusType.CLOSED ? 'Cerrado' : 'Abierto'}
                     </Badge>
                     {s.isDefault && (
-                      <Badge size="xs" variant="light" color="gray">por defecto</Badge>
+                      <Badge size="xs" variant="default">por defecto</Badge>
                     )}
                   </Group>
                 )}

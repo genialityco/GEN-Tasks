@@ -64,7 +64,7 @@ export function CreateOrganizationForm({
           type="button"
           onClick={onCancel}
           className="gt-btn"
-          style={{ background: '#e2e8f0', color: 'var(--text)' }}
+          style={{ background: 'var(--border)', color: 'var(--text)' }}
           disabled={submitting}
         >
           Cancelar

@@ -276,7 +276,8 @@ export function ActivityDetail({
         </Alert>
       )}
 
-      <Stack gap="xs" mb="xl" bg="gray.0" p="md" style={{ borderRadius: 8 }}>
+      <Paper withBorder radius="md" p="md" mb="xl">
+        <Stack gap="xs">
         <Group>
           <Text fw={700} size="sm" c="dimmed">
             Creada:
@@ -449,7 +450,8 @@ export function ActivityDetail({
               </Group>
             ))}
         </Group>
-      </Stack>
+        </Stack>
+      </Paper>
 
       {/* Campos personalizados */}
       {editableFields.length > 0 && (

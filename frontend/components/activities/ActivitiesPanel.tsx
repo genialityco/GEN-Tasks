@@ -128,7 +128,7 @@ export function ActivitiesPanel({
           </Tabs.Tab>
           <Tabs.Tab value="archivados">
             Archivadas
-            <Badge size="xs" ml={6} color="gray" variant="light">{counts.archivados}</Badge>
+            <Badge size="xs" ml={6} color="yellow" variant="light">{counts.archivados}</Badge>
           </Tabs.Tab>
         </Tabs.List>
       </Tabs>

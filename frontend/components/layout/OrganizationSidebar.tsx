@@ -23,7 +23,7 @@ export function OrganizationSidebar({
     padding: '8px 10px',
     borderRadius: 6,
     color: 'inherit',
-    background: active ? '#eef2ff' : 'transparent',
+    background: active ? 'rgba(59, 130, 246, 0.18)' : 'transparent',
   });
 
   return (

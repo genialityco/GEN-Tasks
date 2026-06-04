@@ -269,7 +269,7 @@ function GestorRuleEditor({
             <button
               type="button"
               className="gt-btn"
-              style={{ background: '#e2e8f0', color: 'var(--text)' }}
+              style={{ background: 'var(--border)', color: 'var(--text)' }}
               onClick={() => removeCondition(i)}
             >
               ✕
@@ -334,7 +334,7 @@ function GestorRuleEditor({
                 <button
                   type="button"
                   className="gt-btn"
-                  style={{ background: '#e2e8f0', color: 'var(--text)' }}
+                  style={{ background: 'var(--border)', color: 'var(--text)' }}
                   onClick={() => removeTransition(i)}
                 >
                   ✕
@@ -359,7 +359,7 @@ function GestorRuleEditor({
         </button>
         <button
           className="gt-btn"
-          style={{ background: '#e2e8f0', color: 'var(--text)' }}
+          style={{ background: 'var(--border)', color: 'var(--text)' }}
           onClick={onCancel}
         >
           Cancelar

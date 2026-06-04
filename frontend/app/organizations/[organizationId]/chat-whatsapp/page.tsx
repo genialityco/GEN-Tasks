@@ -72,7 +72,7 @@ function ChatsView({ organizationId }: { organizationId: string }) {
               padding: 12,
               border: 'none',
               borderBottom: '1px solid var(--border)',
-              background: selected === c.id ? '#eef2ff' : 'transparent',
+              background: selected === c.id ? 'rgba(59, 130, 246, 0.18)' : 'transparent',
             }}
           >
             <strong>{c.phone}</strong>
@@ -121,7 +121,11 @@ function ChatsView({ organizationId }: { organizationId: string }) {
                     justifySelf:
                       m.direction === 'OUTBOUND' ? 'end' : 'start',
                     background:
-                      m.direction === 'OUTBOUND' ? '#dbeafe' : '#f1f5f9',
+                      m.direction === 'OUTBOUND'
+                        ? 'rgba(59, 130, 246, 0.25)'
+                        : 'var(--surface)',
+                    color: 'var(--text)',
+                    border: '1px solid var(--border)',
                     padding: '6px 10px',
                     borderRadius: 8,
                     maxWidth: '70%',
