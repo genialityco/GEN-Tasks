@@ -89,6 +89,17 @@ export function DynamicField({
         />
       );
 
+    case CustomFieldType.LINK:
+      return (
+        <TextInput
+          label={label}
+          type="url"
+          placeholder="https://..."
+          value={(value as string) ?? ''}
+          onChange={(e) => onChange(e.currentTarget.value)}
+        />
+      );
+
     case CustomFieldType.TEXT:
     default:
       return (

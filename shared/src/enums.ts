@@ -30,6 +30,7 @@ export enum CustomFieldType {
   IMAGE = 'IMAGE',
   VIDEO = 'VIDEO',
   LIST = 'LIST',
+  LINK = 'LINK',
 }
 
 /** Origen de una actividad. */

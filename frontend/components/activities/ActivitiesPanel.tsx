@@ -111,6 +111,7 @@ export function ActivitiesPanel({
         onSaved={reload}
       />
 
+      {view === 'tabla' && (
       <Tabs
         value={filter.subTab}
         onChange={(v) => { if (v) { filter.setSubTab(v as typeof filter.subTab); filter.setPage(1); } }}
@@ -131,6 +132,7 @@ export function ActivitiesPanel({
           </Tabs.Tab>
         </Tabs.List>
       </Tabs>
+      )}
 
       {loading && <Loader color="blue" type="bars" />}
       {error && <Alert color="red" mb="md">{error}</Alert>}

@@ -61,12 +61,12 @@ export function ActivitiesBoard({
   const byStatus = useMemo(() => {
     const map = new Map<string, Activity[]>();
     for (const s of statuses) map.set(s.id, []);
-    for (const a of filter.filtered) {
+    for (const a of filter.boardFiltered) {
       const list = map.get(a.statusId);
       if (list) list.push(a);
     }
     return map;
-  }, [statuses, filter.filtered]);
+  }, [statuses, filter.boardFiltered]);
 
   async function moveTo(activityId: string, statusId: string, currentStatusId: string) {
     if (statusId === currentStatusId) return;
@@ -112,7 +112,7 @@ export function ActivitiesBoard({
                 e.preventDefault();
                 setOverStatusId(null);
                 const id = e.dataTransfer.getData('text/plain') || dragId;
-                const dragged = filter.filtered.find((a) => a.id === id);
+                const dragged = filter.boardFiltered.find((a) => a.id === id);
                 if (dragged) moveTo(dragged.id, s.id, dragged.statusId);
                 setDragId(null);
               }}

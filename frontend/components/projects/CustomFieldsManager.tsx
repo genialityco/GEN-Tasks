@@ -15,10 +15,30 @@ import {
   Alert,
   Tooltip,
   Modal,
+  MultiSelect,
 } from '@mantine/core';
-import { IconTrash, IconPlus, IconPencil, IconCheck, IconX } from '@tabler/icons-react';
-import { CustomFieldType, type ActivityCustomField } from '@gen-task/shared';
+import {
+  IconTrash,
+  IconPlus,
+  IconPencil,
+  IconCheck,
+  IconX,
+  IconAdjustmentsHorizontal,
+} from '@tabler/icons-react';
+import {
+  CustomFieldType,
+  type ActivityCustomField,
+  type ProjectStatus,
+} from '@gen-task/shared';
 import { projectsApi } from '../../services/api/projects.api';
+import {
+  FieldRulesEditor,
+  buildFieldRulesPayload,
+  emptyFieldRules,
+  fitsSimpleEditor,
+  parseFieldRules,
+  type FieldRulesState,
+} from './FieldRulesEditor';
 
 const TYPE_LABELS: Record<CustomFieldType, string> = {
   TEXT: 'Texto',
@@ -28,27 +48,32 @@ const TYPE_LABELS: Record<CustomFieldType, string> = {
   IMAGE: 'Imagen',
   VIDEO: 'Video',
   LIST: 'Lista',
+  LINK: 'Enlace',
 };
 
 /**
- * Administra los campos personalizados del proyecto. Para tipo LISTA permite
- * definir opciones. El tipo no se puede cambiar una vez creado (regla de dominio).
- * Crear y eliminar estan restringidos a ADMIN y SUPER_ADMIN (pestana de
- * configuracion + revalidacion de rol en el backend).
+ * Administra los campos personalizados del proyecto. Permite definir, por campo,
+ * sus reglas de visibilidad (en qué estados se ve y bajo qué condición de valor)
+ * y obligatoriedad por estado, para construir flujos de captura progresiva sin
+ * depender de triggers. El tipo no se puede cambiar una vez creado (regla de
+ * dominio). Crear/editar/eliminar están restringidos a ADMIN y SUPER_ADMIN.
  */
 export function CustomFieldsManager({
   projectId,
   fields,
+  statuses,
   onChanged,
 }: {
   projectId: string;
   fields: ActivityCustomField[];
+  statuses: ProjectStatus[];
   onChanged: () => void;
 }) {
   const [label, setLabel] = useState('');
   const [type, setType] = useState<CustomFieldType>(CustomFieldType.TEXT);
   const [required, setRequired] = useState(false);
   const [optionsText, setOptionsText] = useState('');
+  const [rules, setRules] = useState<FieldRulesState>(emptyFieldRules());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -58,6 +83,13 @@ export function CustomFieldsManager({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState('');
   const [savingId, setSavingId] = useState<string | null>(null);
+
+  // Edición de reglas de un campo existente (modal).
+  const [rulesField, setRulesField] = useState<ActivityCustomField | null>(null);
+  const [rulesDraft, setRulesDraft] = useState<FieldRulesState>(emptyFieldRules());
+  const [rulesRequired, setRulesRequired] = useState(false);
+  const [rulesBusy, setRulesBusy] = useState(false);
+  const rulesAdvanced = rulesField ? !fitsSimpleEditor(rulesField) : false;
 
   function startRename(field: ActivityCustomField) {
     setEditingId(field.id);
@@ -87,6 +119,40 @@ export function CustomFieldsManager({
     }
   }
 
+  function openRules(field: ActivityCustomField) {
+    setRulesField(field);
+    setRulesDraft(parseFieldRules(field));
+    setRulesRequired(field.required);
+    setError(null);
+  }
+
+  async function saveRules() {
+    if (!rulesField) return;
+    setRulesBusy(true);
+    setError(null);
+    try {
+      const built = buildFieldRulesPayload(rulesDraft);
+      await projectsApi.updateCustomField(projectId, rulesField.id, {
+        required: rulesRequired,
+        requiredOnStatuses: built.requiredOnStatuses,
+        // Si el campo tiene condiciones avanzadas (creadas por una regla) no las
+        // tocamos para no perder esa configuración.
+        ...(rulesAdvanced
+          ? {}
+          : {
+              visibilityConditions: built.visibilityConditions,
+              visibilityLogicalOperator: built.visibilityLogicalOperator,
+            }),
+      });
+      setRulesField(null);
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRulesBusy(false);
+    }
+  }
+
   async function add(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -100,16 +166,27 @@ export function CustomFieldsManager({
               .filter(Boolean)
               .map((o) => ({ label: o, value: o }))
           : undefined;
+      const built = buildFieldRulesPayload(rules);
       await projectsApi.createCustomField(projectId, {
         label: label.trim(),
         type,
         required,
         options,
+        ...(built.requiredOnStatuses.length
+          ? { requiredOnStatuses: built.requiredOnStatuses }
+          : {}),
+        ...(built.visibilityConditions.length
+          ? {
+              visibilityConditions: built.visibilityConditions,
+              visibilityLogicalOperator: built.visibilityLogicalOperator,
+            }
+          : {}),
       });
       setLabel('');
       setOptionsText('');
       setRequired(false);
       setType(CustomFieldType.TEXT);
+      setRules(emptyFieldRules());
       setCreateOpen(false);
       onChanged();
     } catch (err) {
@@ -136,6 +213,7 @@ export function CustomFieldsManager({
   }
 
   const visible = fields.filter((f) => !f.isArchived).sort((a, b) => a.order - b.order);
+  const statusName = (id: string) => statuses.find((s) => s.id === id)?.name ?? id;
 
   return (
     <Paper withBorder radius="md" p="md">
@@ -151,6 +229,8 @@ export function CustomFieldsManager({
         <Stack gap={6}>
           {visible.map((f) => {
             const isEditing = editingId === f.id;
+            const visibleCount = f.visibilityConditions?.length ?? 0;
+            const requiredCount = f.requiredOnStatuses?.length ?? 0;
             return (
             <Group
               key={f.id}
@@ -185,7 +265,7 @@ export function CustomFieldsManager({
                   </Tooltip>
                 </Group>
               ) : (
-                <Group gap="xs" wrap="nowrap">
+                <Group gap="xs" wrap="wrap">
                   <Text>{f.label}</Text>
                   <Badge size="xs" variant="light" color="blue">{TYPE_LABELS[f.type]}</Badge>
                   {f.required && (
@@ -194,11 +274,24 @@ export function CustomFieldsManager({
                   {!!f.options?.length && (
                     <Badge size="xs" variant="light" color="gray">{f.options.length} opciones</Badge>
                   )}
+                  {visibleCount > 0 && (
+                    <Badge size="xs" variant="light" color="grape">condicional</Badge>
+                  )}
+                  {requiredCount > 0 && (
+                    <Badge size="xs" variant="light" color="orange">
+                      obligatorio en {requiredCount} estado{requiredCount !== 1 ? 's' : ''}
+                    </Badge>
+                  )}
                 </Group>
               )}
 
               {!isEditing && (
                 <Group gap="xs" wrap="nowrap">
+                  <Tooltip label="Reglas de visibilidad" withArrow>
+                    <ActionIcon variant="subtle" color="grape" onClick={() => openRules(f)}>
+                      <IconAdjustmentsHorizontal size={16} />
+                    </ActionIcon>
+                  </Tooltip>
                   <Tooltip label="Renombrar" withArrow>
                     <ActionIcon variant="subtle" color="blue" onClick={() => startRename(f)}>
                       <IconPencil size={16} />
@@ -225,7 +318,8 @@ export function CustomFieldsManager({
         </Stack>
       </Stack>
 
-      <Modal opened={createOpen} onClose={() => setCreateOpen(false)} title="Nuevo campo personalizado" centered>
+      {/* Crear campo */}
+      <Modal opened={createOpen} onClose={() => setCreateOpen(false)} title="Nuevo campo personalizado" centered size="lg">
         <form onSubmit={add}>
           <Stack gap="sm">
             {error && <Alert color="red">{error}</Alert>}
@@ -248,7 +342,7 @@ export function CustomFieldsManager({
               allowDeselect={false}
             />
             <Checkbox
-              label="Obligatorio"
+              label="Obligatorio (siempre)"
               checked={required}
               onChange={(e) => setRequired(e.currentTarget.checked)}
             />
@@ -260,7 +354,16 @@ export function CustomFieldsManager({
                 onChange={(e) => setOptionsText(e.currentTarget.value)}
               />
             )}
-            <Group gap="sm" justify="flex-end">
+
+            <Text fw={600} size="sm" mt="xs">Reglas de visibilidad</Text>
+            <FieldRulesEditor
+              statuses={statuses}
+              fields={fields}
+              value={rules}
+              onChange={setRules}
+            />
+
+            <Group gap="sm" justify="flex-end" mt="xs">
               <Button type="button" variant="default" onClick={() => setCreateOpen(false)} disabled={busy}>
                 Cancelar
               </Button>
@@ -269,6 +372,87 @@ export function CustomFieldsManager({
           </Stack>
         </form>
       </Modal>
+
+      {/* Editar reglas de un campo existente */}
+      <Modal
+        opened={!!rulesField}
+        onClose={() => setRulesField(null)}
+        title={rulesField ? `Reglas de “${rulesField.label}”` : ''}
+        centered
+        size="lg"
+      >
+        <Stack gap="sm">
+          {error && <Alert color="red">{error}</Alert>}
+          {rulesAdvanced && (
+            <Alert color="yellow">
+              Este campo tiene condiciones de visibilidad avanzadas (probablemente creadas
+              por una regla). Se conservan tal cual; aquí solo puedes ajustar la
+              obligatoriedad.
+            </Alert>
+          )}
+          <Checkbox
+            label="Obligatorio (siempre)"
+            checked={rulesRequired}
+            onChange={(e) => setRulesRequired(e.currentTarget.checked)}
+          />
+          {!rulesAdvanced && rulesField && (
+            <FieldRulesEditor
+              statuses={statuses}
+              fields={fields.filter((f) => f.id !== rulesField.id)}
+              value={rulesDraft}
+              onChange={setRulesDraft}
+            />
+          )}
+          {rulesAdvanced && rulesField && (
+            <MultiSelectRequiredOnly
+              statuses={statuses}
+              value={rulesDraft}
+              onChange={setRulesDraft}
+            />
+          )}
+          {rulesField && rulesDraft.visibleStatuses.length > 0 && !rulesAdvanced && (
+            <Text size="xs" c="dimmed">
+              Visible en: {rulesDraft.visibleStatuses.map(statusName).join(', ')}.
+            </Text>
+          )}
+          <Group gap="sm" justify="flex-end" mt="xs">
+            <Button variant="default" onClick={() => setRulesField(null)} disabled={rulesBusy}>
+              Cancelar
+            </Button>
+            <Button onClick={saveRules} loading={rulesBusy}>Guardar reglas</Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Paper>
+  );
+}
+
+/**
+ * Para campos con visibilidad avanzada: solo permite editar "obligatorio en
+ * estados" sin tocar las condiciones de visibilidad existentes.
+ */
+function MultiSelectRequiredOnly({
+  statuses,
+  value,
+  onChange,
+}: {
+  statuses: ProjectStatus[];
+  value: FieldRulesState;
+  onChange: (next: FieldRulesState) => void;
+}) {
+  const statusData = statuses
+    .filter((s) => !s.isArchived)
+    .sort((a, b) => a.order - b.order)
+    .map((s) => ({ value: s.id, label: s.name }));
+  return (
+    <MultiSelect
+      label="Obligatorio en estados"
+      placeholder="Ninguno"
+      data={statusData}
+      value={value.requiredStatuses}
+      onChange={(v) => onChange({ ...value, requiredStatuses: v })}
+      clearable
+      searchable
+    />
   );
 }

@@ -15,6 +15,7 @@ import {
   Tooltip,
   Alert,
   Select,
+  Anchor,
 } from '@mantine/core';
 import {
   IconFilter,
@@ -143,7 +144,16 @@ export function ActivitiesTable({
         render: (a: Activity) => {
           const v = a.customFieldValues?.[f.key];
           if (isFileField(f.type)) return attachmentsSummary(v);
-          return v == null || v === '' ? '—' : String(v);
+          if (v == null || v === '') return '—';
+          if (f.type === CustomFieldType.LINK) {
+            const url = String(v);
+            return (
+              <Anchor href={url} target="_blank" rel="noopener noreferrer" size="sm" lineClamp={1}>
+                {url}
+              </Anchor>
+            );
+          }
+          return String(v);
         },
       }));
     return [...base, ...custom];

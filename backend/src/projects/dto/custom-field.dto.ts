@@ -9,12 +9,28 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { CustomFieldType, UserRole } from '@gen-task/shared';
+import {
+  ConditionOperator,
+  CustomFieldType,
+  LogicalOperator,
+  UserRole,
+} from '@gen-task/shared';
 
 export class CustomFieldOptionDto {
   @IsString() @MinLength(1) label!: string;
   @IsString() @MinLength(1) value!: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+/**
+ * Condicion de visibilidad de un campo (mismo shape que `RuleCondition`). El
+ * `value` es libre (string, numero o arreglo segun el operador), por eso no se
+ * valida su tipo aqui.
+ */
+export class RuleConditionDto {
+  @IsString() fieldKey!: string;
+  @IsEnum(ConditionOperator) operator!: ConditionOperator;
+  @IsOptional() value?: unknown;
 }
 
 export class CreateCustomFieldDto {
@@ -40,6 +56,15 @@ export class CreateCustomFieldDto {
   @Type(() => CustomFieldOptionDto)
   options?: CustomFieldOptionDto[];
 
+  /** Condiciones de visibilidad: el campo solo se muestra/exige si se cumplen. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RuleConditionDto)
+  visibilityConditions?: RuleConditionDto[];
+
+  @IsOptional() @IsEnum(LogicalOperator) visibilityLogicalOperator?: LogicalOperator;
+
   @IsOptional() @IsInt() order?: number;
 }
 
@@ -59,6 +84,14 @@ export class UpdateCustomFieldDto {
   @ValidateNested({ each: true })
   @Type(() => CustomFieldOptionDto)
   options?: CustomFieldOptionDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RuleConditionDto)
+  visibilityConditions?: RuleConditionDto[];
+
+  @IsOptional() @IsEnum(LogicalOperator) visibilityLogicalOperator?: LogicalOperator;
 
   @IsOptional() @IsInt() order?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;

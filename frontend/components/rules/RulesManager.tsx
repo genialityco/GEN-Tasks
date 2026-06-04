@@ -2,6 +2,21 @@
 
 import { useState } from 'react';
 import {
+  Stack,
+  Group,
+  Text,
+  TextInput,
+  Select,
+  Checkbox,
+  Button,
+  ActionIcon,
+  Badge,
+  Alert,
+  Tooltip,
+  Divider,
+} from '@mantine/core';
+import { IconTrash, IconPlus } from '@tabler/icons-react';
+import {
   ConditionOperator,
   CustomFieldType,
   LogicalOperator,
@@ -14,6 +29,11 @@ import {
 import { rulesApi } from '../../services/api/rules.api';
 import { organizationsApi } from '../../services/api/organizations.api';
 import { useAsync } from '../../hooks/useAsync';
+import {
+  ConditionBuilder,
+  customFieldOptions,
+  type ConditionDraft,
+} from '../projects/ConditionBuilder';
 
 const EVENT_LABELS: Record<RuleEvent, string> = {
   ON_ACTIVITY_CREATED: 'Al crear actividad',
@@ -39,7 +59,15 @@ const FIELD_TYPE_LABELS: Record<CustomFieldType, string> = {
   IMAGE: 'Imagen',
   VIDEO: 'Video',
   LIST: 'Lista',
+  LINK: 'Enlace',
 };
+
+/** Acciones cuyo payload es un mensaje/comentario de texto libre. */
+const MESSAGE_ACTIONS: RuleActionType[] = [
+  RuleActionType.SEND_WHATSAPP,
+  RuleActionType.REQUEST_HOST_INFORMATION,
+  RuleActionType.REGISTER_HISTORY_EVENT,
+];
 
 /** Borrador de un campo a crear por la accion CREATE_CUSTOM_FIELD. */
 interface FieldDraft {
@@ -54,9 +82,11 @@ function emptyFieldDraft(): FieldDraft {
 }
 
 /**
- * Editor de condiciones y triggers del proyecto (Fase 6). Crea reglas con un
- * evento, una condicion sobre un campo y una accion. La evaluacion y ejecucion
- * la realiza el motor de reglas del backend al crear/cambiar estado.
+ * Seccion de automatizaciones (triggers) del proyecto. Crea reglas con un evento,
+ * una condicion opcional sobre un campo y una accion. La evaluacion y ejecucion
+ * la realiza el motor de reglas del backend al crear/cambiar estado. Se embebe
+ * dentro de `ProjectRulesConfig` (no dibuja su propia tarjeta) y comparte el
+ * editor de condiciones con las restricciones de estado.
  */
 export function RulesManager({
   projectId,
@@ -82,9 +112,11 @@ export function RulesManager({
 
   const [name, setName] = useState('');
   const [event, setEvent] = useState<RuleEvent>(RuleEvent.ON_STATUS_CHANGED);
-  const [fieldKey, setFieldKey] = useState('');
-  const [operator, setOperator] = useState<ConditionOperator>(ConditionOperator.EQUALS);
-  const [value, setValue] = useState('');
+  const [condition, setCondition] = useState<ConditionDraft>({
+    fieldKey: '',
+    operator: ConditionOperator.EQUALS,
+    value: '',
+  });
   const [actionType, setActionType] = useState<RuleActionType>(
     RuleActionType.REGISTER_HISTORY_EVENT,
   );
@@ -101,20 +133,25 @@ export function RulesManager({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const activeStatuses = statuses.filter((s) => !s.isArchived);
+  const statusSelectData = activeStatuses.map((s) => ({ value: s.id, label: s.name }));
+
   async function create(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const conditions = fieldKey
-        ? [{ fieldKey, operator, value: value || undefined }]
+      const conditions = condition.fieldKey
+        ? [
+            {
+              fieldKey: condition.fieldKey,
+              operator: condition.operator,
+              value: condition.value || undefined,
+            },
+          ]
         : [];
       const payload: Record<string, unknown> = {};
-      if (
-        actionType === RuleActionType.SEND_WHATSAPP ||
-        actionType === RuleActionType.REQUEST_HOST_INFORMATION ||
-        actionType === RuleActionType.REGISTER_HISTORY_EVENT
-      ) {
+      if (MESSAGE_ACTIONS.includes(actionType)) {
         payload.message = actionMessage;
       }
       if (actionType === RuleActionType.CHANGE_STATUS) {
@@ -159,9 +196,10 @@ export function RulesManager({
           : {}),
       });
       setName('');
-      setValue('');
+      setCondition({ fieldKey: '', operator: ConditionOperator.EQUALS, value: '' });
       setActionMessage('');
       setActionResponsibleId('');
+      setActionStatusId('');
       setFromStatusId('');
       setToStatusId('');
       setCfDrafts([emptyFieldDraft()]);
@@ -190,294 +228,229 @@ export function RulesManager({
   }
 
   return (
-    <div className="gt-card" style={{ display: 'grid', gap: 12 }}>
-      <strong>Condiciones y triggers</strong>
-      {error && <div className="gt-error">{error}</div>}
+    <Stack gap="sm">
+      {error && <Alert color="red">{error}</Alert>}
 
-      <div style={{ display: 'grid', gap: 6 }}>
+      <Stack gap={6}>
         {rules?.map((r) => (
-          <div
+          <Group
             key={r.id}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              gap: 8,
-              padding: '6px 8px',
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-            }}
+            justify="space-between"
+            wrap="nowrap"
+            gap="sm"
+            p="xs"
+            style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 6 }}
           >
-            <span>
+            <Text size="sm">
               <strong>{r.name}</strong>{' '}
-              <span className="gt-muted">
+              <Text span size="sm" c="dimmed">
                 {EVENT_LABELS[r.event]}
                 {r.event === RuleEvent.ON_STATUS_CHANGED && (r.fromStatusId || r.toStatusId)
                   ? ` (${statusName(r.fromStatusId) || 'cualquiera'} → ${statusName(r.toStatusId) || 'cualquiera'})`
                   : ''}{' '}
-                ·{' '}
-                {r.actions.map((a) => ACTION_LABELS[a.type]).join(', ')}
-              </span>
-            </span>
-            <button
-              className="gt-btn"
-              style={{ background: '#e2e8f0', color: 'var(--text)', padding: '4px 10px' }}
-              onClick={() => remove(r.id)}
-            >
-              Eliminar
-            </button>
-          </div>
+                · {r.actions.map((a) => ACTION_LABELS[a.type]).join(', ')}
+              </Text>
+            </Text>
+            <Tooltip label="Eliminar" withArrow>
+              <ActionIcon color="red" variant="subtle" onClick={() => remove(r.id)}>
+                <IconTrash size={16} />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
         ))}
         {rules && rules.length === 0 && (
-          <span className="gt-muted">Sin reglas configuradas.</span>
+          <Text size="sm" c="dimmed">Sin automatizaciones configuradas.</Text>
         )}
-      </div>
+      </Stack>
 
-      <form onSubmit={create} style={{ display: 'grid', gap: 8 }}>
-        <input
-          className="gt-input"
-          placeholder="Nombre de la regla"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-        <label style={{ display: 'grid', gap: 4 }}>
-          <span className="gt-muted">Evento</span>
-          <select
-            className="gt-input"
-            value={event}
-            onChange={(e) => setEvent(e.target.value as RuleEvent)}
-          >
-            {(Object.keys(EVENT_LABELS) as RuleEvent[]).map((ev) => (
-              <option key={ev} value={ev}>
-                {EVENT_LABELS[ev]}
-              </option>
-            ))}
-          </select>
-        </label>
+      <Divider my="xs" variant="dashed" />
 
-        {event === RuleEvent.ON_STATUS_CHANGED && (
-          <div style={{ display: 'grid', gap: 4 }}>
-            <span className="gt-muted">Transición (opcional)</span>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <select
-                className="gt-input"
-                style={{ flex: 1, minWidth: 140 }}
-                value={fromStatusId}
-                onChange={(e) => setFromStatusId(e.target.value)}
-              >
-                <option value="">Desde: cualquier estado</option>
-                {statuses
-                  .filter((s) => !s.isArchived)
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      Desde: {s.name}
-                    </option>
-                  ))}
-              </select>
-              <span aria-hidden>→</span>
-              <select
-                className="gt-input"
-                style={{ flex: 1, minWidth: 140 }}
-                value={toStatusId}
-                onChange={(e) => setToStatusId(e.target.value)}
-              >
-                <option value="">Hacia: cualquier estado</option>
-                {statuses
-                  .filter((s) => !s.isArchived)
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      Hacia: {s.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-          </div>
-        )}
-
-        <span className="gt-muted">Condicion (opcional)</span>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <select
-            className="gt-input"
-            style={{ flex: 1, minWidth: 120 }}
-            value={fieldKey}
-            onChange={(e) => setFieldKey(e.target.value)}
-          >
-            <option value="">— sin condicion —</option>
-            {fields
-              .filter((f) => !f.isArchived)
-              .map((f) => (
-                <option key={f.id} value={f.key}>
-                  {f.label}
-                </option>
-              ))}
-          </select>
-          <select
-            className="gt-input"
-            style={{ width: 130 }}
-            value={operator}
-            onChange={(e) => setOperator(e.target.value as ConditionOperator)}
-          >
-            {Object.values(ConditionOperator).map((op) => (
-              <option key={op} value={op}>
-                {op}
-              </option>
-            ))}
-          </select>
-          <input
-            className="gt-input"
-            style={{ flex: 1, minWidth: 120 }}
-            placeholder="Valor"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
+      <Text size="sm" fw={600}>Nueva automatización</Text>
+      <form onSubmit={create}>
+        <Stack gap="sm">
+          <TextInput
+            label="Nombre de la regla"
+            placeholder="Ej: Notificar al finalizar"
+            value={name}
+            onChange={(e) => setName(e.currentTarget.value)}
+            required
+            w={320}
           />
-        </div>
 
-        <span className="gt-muted">Accion</span>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <select
-            className="gt-input"
-            style={{ width: 200 }}
-            value={actionType}
-            onChange={(e) => setActionType(e.target.value as RuleActionType)}
-          >
-            {(Object.keys(ACTION_LABELS) as RuleActionType[]).map((a) => (
-              <option key={a} value={a}>
-                {ACTION_LABELS[a]}
-              </option>
-            ))}
-          </select>
-          {actionType === RuleActionType.CHANGE_STATUS ? (
-            <select
-              className="gt-input"
-              style={{ flex: 1, minWidth: 140 }}
-              value={actionStatusId}
-              onChange={(e) => setActionStatusId(e.target.value)}
-            >
-              <option value="">Estado destino...</option>
-              {statuses
-                .filter((s) => !s.isArchived)
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-            </select>
-          ) : actionType === RuleActionType.ASSIGN_RESPONSIBLE ? (
-            <select
-              className="gt-input"
-              style={{ flex: 1, minWidth: 140 }}
-              value={actionResponsibleId}
-              onChange={(e) => setActionResponsibleId(e.target.value)}
-            >
-              <option value="">Seleccionar usuario a notificar...</option>
-              {(members ?? []).map((m) => (
-                <option key={m.userId} value={m.userId}>
-                  {m.name} · {m.role === UserRole.ADMIN ? 'Admin' : 'Gestor'}
-                </option>
-              ))}
-            </select>
-          ) : actionType === RuleActionType.CREATE_CUSTOM_FIELD ? null : (
-            <input
-              className="gt-input"
-              style={{ flex: 1, minWidth: 140 }}
-              placeholder="Mensaje / comentario"
+          <Group gap="sm" align="flex-end" wrap="wrap">
+            <Select
+              label="Evento"
+              data={(Object.keys(EVENT_LABELS) as RuleEvent[]).map((ev) => ({
+                value: ev,
+                label: EVENT_LABELS[ev],
+              }))}
+              value={event}
+              onChange={(v) => v && setEvent(v as RuleEvent)}
+              allowDeselect={false}
+              w={210}
+            />
+            {event === RuleEvent.ON_STATUS_CHANGED && (
+              <>
+                <Select
+                  label="Desde (opcional)"
+                  placeholder="Cualquier estado"
+                  data={statusSelectData}
+                  value={fromStatusId || null}
+                  onChange={(v) => setFromStatusId(v ?? '')}
+                  clearable
+                  w={180}
+                />
+                <Select
+                  label="Hacia (opcional)"
+                  placeholder="Cualquier estado"
+                  data={statusSelectData}
+                  value={toStatusId || null}
+                  onChange={(v) => setToStatusId(v ?? '')}
+                  clearable
+                  w={180}
+                />
+              </>
+            )}
+          </Group>
+
+          <Text size="xs" c="dimmed">
+            Condición (opcional): la acción solo se ejecuta si la actividad la cumple.
+          </Text>
+          <ConditionBuilder
+            fieldOptions={customFieldOptions(fields)}
+            condition={condition}
+            onChange={setCondition}
+            emptyFieldOption="— sin condición —"
+          />
+
+          <Group gap="sm" align="flex-end" wrap="wrap">
+            <Select
+              label="Acción"
+              data={(Object.keys(ACTION_LABELS) as RuleActionType[]).map((a) => ({
+                value: a,
+                label: ACTION_LABELS[a],
+              }))}
+              value={actionType}
+              onChange={(v) => v && setActionType(v as RuleActionType)}
+              allowDeselect={false}
+              w={210}
+            />
+            {actionType === RuleActionType.CHANGE_STATUS && (
+              <Select
+                label="Estado destino"
+                placeholder="Selecciona..."
+                data={statusSelectData}
+                value={actionStatusId || null}
+                onChange={(v) => setActionStatusId(v ?? '')}
+                w={210}
+              />
+            )}
+            {actionType === RuleActionType.ASSIGN_RESPONSIBLE && (
+              <Select
+                label="Usuario a notificar"
+                placeholder="Selecciona..."
+                data={(members ?? []).map((m) => ({
+                  value: m.userId,
+                  label: `${m.name} · ${m.role === UserRole.ADMIN ? 'Admin' : 'Gestor'}`,
+                }))}
+                value={actionResponsibleId || null}
+                onChange={(v) => setActionResponsibleId(v ?? '')}
+                searchable
+                w={260}
+              />
+            )}
+            {MESSAGE_ACTIONS.includes(actionType) && (
+              <TextInput
+                label="Mensaje / comentario"
+                value={actionMessage}
+                onChange={(e) => setActionMessage(e.currentTarget.value)}
+                w={320}
+              />
+            )}
+          </Group>
+
+          {actionType === RuleActionType.ASSIGN_RESPONSIBLE && (
+            <TextInput
+              label="Mensaje a notificar"
+              placeholder="Se enviará al activarse las notificaciones"
               value={actionMessage}
-              onChange={(e) => setActionMessage(e.target.value)}
+              onChange={(e) => setActionMessage(e.currentTarget.value)}
+              w={420}
             />
           )}
-        </div>
 
-        {actionType === RuleActionType.ASSIGN_RESPONSIBLE && (
-          <input
-            className="gt-input"
-            placeholder="Mensaje a notificar (se enviará al activarse las notificaciones)"
-            value={actionMessage}
-            onChange={(e) => setActionMessage(e.target.value)}
-          />
-        )}
-
-        {actionType === RuleActionType.CREATE_CUSTOM_FIELD && (
-          <div style={{ display: 'grid', gap: 8 }}>
-            <span className="gt-muted">Campos a crear</span>
-            {cfDrafts.map((draft, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'grid',
-                  gap: 8,
-                  padding: 8,
-                  border: '1px solid var(--border)',
-                  borderRadius: 6,
-                }}
-              >
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <input
-                    className="gt-input"
-                    style={{ flex: 1 }}
-                    placeholder={`Etiqueta del campo ${i + 1} (ej: Evidencia)`}
-                    value={draft.label}
-                    onChange={(e) => updateDraft(i, { label: e.target.value })}
-                  />
-                  {cfDrafts.length > 1 && (
-                    <button
-                      type="button"
-                      className="gt-btn"
-                      style={{ background: '#e2e8f0', color: 'var(--text)', padding: '4px 10px' }}
-                      onClick={() => removeDraft(i)}
-                    >
-                      Quitar
-                    </button>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <select
-                    className="gt-input"
-                    style={{ width: 160 }}
-                    value={draft.type}
-                    onChange={(e) =>
-                      updateDraft(i, { type: e.target.value as CustomFieldType })
-                    }
-                  >
-                    {(Object.keys(FIELD_TYPE_LABELS) as CustomFieldType[]).map((t) => (
-                      <option key={t} value={t}>
-                        {FIELD_TYPE_LABELS[t]}
-                      </option>
-                    ))}
-                  </select>
-                  <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      checked={draft.required}
-                      onChange={(e) => updateDraft(i, { required: e.target.checked })}
+          {actionType === RuleActionType.CREATE_CUSTOM_FIELD && (
+            <Stack gap="sm">
+              <Text size="sm" fw={600}>Campos a crear</Text>
+              {cfDrafts.map((draft, i) => (
+                <Stack
+                  key={i}
+                  gap="sm"
+                  p="sm"
+                  style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 6 }}
+                >
+                  <Group gap="sm" align="flex-end" wrap="nowrap">
+                    <TextInput
+                      label={`Etiqueta del campo ${i + 1}`}
+                      placeholder="Ej: Evidencia"
+                      value={draft.label}
+                      onChange={(e) => updateDraft(i, { label: e.currentTarget.value })}
+                      style={{ flex: 1 }}
                     />
-                    <span className="gt-muted">Obligatorio</span>
-                  </label>
-                </div>
-                {draft.type === CustomFieldType.LIST && (
-                  <input
-                    className="gt-input"
-                    placeholder="Opciones separadas por coma (ej: Electrico, Fisico, Software)"
-                    value={draft.optionsText}
-                    onChange={(e) => updateDraft(i, { optionsText: e.target.value })}
-                  />
-                )}
-              </div>
-            ))}
-            <button
-              type="button"
-              className="gt-btn"
-              style={{ background: '#e2e8f0', color: 'var(--text)', justifySelf: 'start', padding: '4px 10px' }}
-              onClick={addDraft}
-            >
-              + Agregar otro campo
-            </button>
-          </div>
-        )}
+                    {cfDrafts.length > 1 && (
+                      <Tooltip label="Quitar campo" withArrow>
+                        <ActionIcon color="red" variant="subtle" onClick={() => removeDraft(i)}>
+                          <IconTrash size={16} />
+                        </ActionIcon>
+                      </Tooltip>
+                    )}
+                  </Group>
+                  <Group gap="md" align="center" wrap="wrap">
+                    <Select
+                      label="Tipo"
+                      data={(Object.keys(FIELD_TYPE_LABELS) as CustomFieldType[]).map((t) => ({
+                        value: t,
+                        label: FIELD_TYPE_LABELS[t],
+                      }))}
+                      value={draft.type}
+                      onChange={(v) => v && updateDraft(i, { type: v as CustomFieldType })}
+                      allowDeselect={false}
+                      w={180}
+                    />
+                    <Checkbox
+                      label="Obligatorio"
+                      checked={draft.required}
+                      onChange={(e) => updateDraft(i, { required: e.currentTarget.checked })}
+                      mt="lg"
+                    />
+                  </Group>
+                  {draft.type === CustomFieldType.LIST && (
+                    <TextInput
+                      label="Opciones"
+                      placeholder="Separadas por coma (ej: Electrico, Fisico, Software)"
+                      value={draft.optionsText}
+                      onChange={(e) => updateDraft(i, { optionsText: e.currentTarget.value })}
+                    />
+                  )}
+                </Stack>
+              ))}
+              <Button
+                type="button"
+                variant="light"
+                leftSection={<IconPlus size={14} />}
+                onClick={addDraft}
+                style={{ alignSelf: 'flex-start' }}
+              >
+                Agregar otro campo
+              </Button>
+            </Stack>
+          )}
 
-        <button className="gt-btn" type="submit" disabled={busy} style={{ justifySelf: 'start' }}>
-          Crear regla
-        </button>
+          <Button type="submit" loading={busy} style={{ alignSelf: 'flex-start' }}>
+            Crear automatización
+          </Button>
+        </Stack>
       </form>
-    </div>
+    </Stack>
   );
 }

@@ -1,9 +1,11 @@
 import type {
   ActivityCustomField,
   CustomFieldType,
+  LogicalOperator,
   Project,
   ProjectCompliance,
   ProjectStatus,
+  RuleCondition,
   StatusTransitionGuard,
   StatusType,
   UserRole,
@@ -30,6 +32,8 @@ export interface CreateCustomFieldInput {
   requiredOnStatuses?: string[];
   visibleForRoles?: UserRole[];
   editableForRoles?: UserRole[];
+  visibilityConditions?: RuleCondition[];
+  visibilityLogicalOperator?: LogicalOperator;
   options?: CustomFieldOptionInput[];
   order?: number;
 }

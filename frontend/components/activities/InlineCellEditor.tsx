@@ -217,10 +217,16 @@ export function InlineCellEditor({
         />
       );
     }
-    // TEXT y DATE usan input de texto/fecha.
+    // TEXT, DATE y LINK usan input de texto/fecha/url.
     return (
       <InlineText
-        type={fieldType === CustomFieldType.DATE ? 'date' : 'text'}
+        type={
+          fieldType === CustomFieldType.DATE
+            ? 'date'
+            : fieldType === CustomFieldType.LINK
+              ? 'url'
+              : 'text'
+        }
         initial={current == null ? '' : String(current)}
         onCommit={(val) =>
           saveValue(val === '' ? undefined : val, val === (current == null ? '' : String(current)))
@@ -242,7 +248,7 @@ function InlineText({
   onCancel,
 }: {
   initial: string;
-  type?: 'text' | 'date';
+  type?: 'text' | 'date' | 'url';
   onCommit: (value: string) => void;
   onCancel: () => void;
 }) {

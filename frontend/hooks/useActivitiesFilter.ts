@@ -31,9 +31,10 @@ export function useActivitiesFilter(activities: Activity[], project: Project) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState('10');
 
-  const filtered = useMemo(() => {
-    return activities.filter((a) => {
-      if (activitySubTab(a, statusMap) !== subTab) return false;
+  // Predicado comun (campos, responsables, rango de fecha) sin el filtro de
+  // sub-pestana, para reutilizarlo en la tabla y el tablero.
+  const matchesCommonFilters = useMemo(() => {
+    return (a: Activity) => {
       for (const [key, vals] of Object.entries(filterFields)) {
         if (vals.length && !vals.includes(getActivityFieldValue(a, project, key))) return false;
       }
@@ -52,8 +53,20 @@ export function useActivitiesFilter(activities: Activity[], project: Project) {
         if (new Date(a.createdAt).getTime() > to) return false;
       }
       return true;
-    });
-  }, [activities, statusMap, subTab, filterFields, filterResponsibles, filterFechaFrom, filterFechaTo, project]);
+    };
+  }, [filterFields, filterResponsibles, filterFechaFrom, filterFechaTo, project]);
+
+  const filtered = useMemo(() => {
+    return activities.filter(
+      (a) => activitySubTab(a, statusMap) === subTab && matchesCommonFilters(a),
+    );
+  }, [activities, statusMap, subTab, matchesCommonFilters]);
+
+  // Para el tablero (kanban): todas las actividades no archivadas, sin importar
+  // la sub-pestana, ya que cada columna representa un estado del proyecto.
+  const boardFiltered = useMemo(() => {
+    return activities.filter((a) => !a.isArchived && matchesCommonFilters(a));
+  }, [activities, matchesCommonFilters]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -110,6 +123,7 @@ export function useActivitiesFilter(activities: Activity[], project: Project) {
     pageSize,
     setPageSize,
     filtered,
+    boardFiltered,
     sorted,
     paginated,
     totalPages,

@@ -4,10 +4,9 @@ import { useState } from 'react';
 import type { Project } from '@gen-task/shared';
 import { projectsApi } from '../../services/api/projects.api';
 import { StatusesManager } from './StatusesManager';
-import { StatusFlowConfig } from './StatusFlowConfig';
 import { CustomFieldsManager } from './CustomFieldsManager';
 import { ComplianceConfig } from './ComplianceConfig';
-import { RulesManager } from '../rules/RulesManager';
+import { ProjectRulesConfig } from './ProjectRulesConfig';
 
 /** Configuracion del proyecto: nombre, estados, campos personalizados y reglas. */
 export function ProjectConfig({
@@ -72,19 +71,14 @@ export function ProjectConfig({
         statuses={project.statuses}
         onChanged={onChanged}
       />
-      <StatusFlowConfig project={project} onChanged={onChanged} />
       <ComplianceConfig project={project} onChanged={onChanged} />
       <CustomFieldsManager
         projectId={project.id}
         fields={project.customFields}
+        statuses={project.statuses}
         onChanged={onChanged}
       />
-      <RulesManager
-        projectId={project.id}
-        organizationId={project.organizationId}
-        fields={project.customFields}
-        statuses={project.statuses}
-      />
+      <ProjectRulesConfig project={project} onChanged={onChanged} />
     </div>
   );
 }

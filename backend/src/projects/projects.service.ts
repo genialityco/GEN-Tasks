@@ -389,7 +389,10 @@ export class ProjectsService {
       requiredOnStatuses: def.requiredOnStatuses,
       visibleForRoles: def.visibleForRoles,
       editableForRoles: def.editableForRoles,
-      visibilityConditions: def.visibilityConditions,
+      // Las condiciones llegan como instancias de DTO; se aplanan para Firestore.
+      visibilityConditions: def.visibilityConditions
+        ? this.toPlain(def.visibilityConditions)
+        : undefined,
       visibilityLogicalOperator: def.visibilityLogicalOperator,
       options: def.options?.map((o) => ({
         id: randomUUID(),
@@ -461,11 +464,14 @@ export class ProjectsService {
       UserRole.ADMIN,
     ]);
     const now = new Date().toISOString();
+    // Aplana el DTO: las condiciones de visibilidad llegan como instancias de
+    // class-transformer y Firestore no serializa objetos con prototipo propio.
+    const safeDto = this.toPlain(dto);
     const customFields = project.customFields.map((f) => {
       if (f.id !== fieldId) return f;
       return {
         ...f,
-        ...dto,
+        ...safeDto,
         // La key permanece estable aunque cambie el label.
         key: f.key,
         type: f.type,
