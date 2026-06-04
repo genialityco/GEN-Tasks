@@ -172,7 +172,9 @@ export class ProjectsService {
     if (dto.transitionGuards !== undefined) {
       // Objetos planos para Firestore; asigna id a los guards que no lo traigan.
       patch.transitionGuards = dto.transitionGuards.map((g) => ({
-        id: g.id ?? randomUUID(),
+        // `|| ` (no `??`): el frontend envia id '' para los guards nuevos y un
+        // string vacio debe recibir un id nuevo, no conservarse.
+        id: g.id || randomUUID(),
         toStatusId: g.toStatusId ?? null,
         conditions: g.conditions.map((c) => ({
           fieldKey: c.fieldKey,

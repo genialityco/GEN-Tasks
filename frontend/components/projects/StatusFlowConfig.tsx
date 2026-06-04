@@ -123,8 +123,10 @@ export function StatusFlowConfig({
     setMessage('');
   }
 
-  async function removeGuard(id: string) {
-    await persist(guards.filter((g) => g.id !== id));
+  // Borrado por posición: robusto aunque varios guards compartan id (datos
+  // antiguos creados antes de que el backend asignara ids únicos).
+  async function removeGuard(index: number) {
+    await persist(guards.filter((_, i) => i !== index));
   }
 
   const fieldLabel = (key: string) =>
@@ -149,12 +151,12 @@ export function StatusFlowConfig({
       </Text>
 
       <Stack gap={6}>
-        {guards.map((g) => {
+        {guards.map((g, idx) => {
           const c = g.conditions[0];
           const op = c?.operator as ConditionOperator | undefined;
           return (
             <Group
-              key={g.id}
+              key={g.id || idx}
               justify="space-between"
               wrap="nowrap"
               gap="sm"
@@ -169,7 +171,7 @@ export function StatusFlowConfig({
                 {g.message ? ` — si no: “${g.message}”` : ''}
               </Text>
               <Tooltip label="Eliminar" withArrow>
-                <ActionIcon color="red" variant="subtle" onClick={() => removeGuard(g.id)} disabled={busy}>
+                <ActionIcon color="red" variant="subtle" onClick={() => removeGuard(idx)} disabled={busy}>
                   <IconTrash size={16} />
                 </ActionIcon>
               </Tooltip>
