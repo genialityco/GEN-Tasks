@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   Activity,
   FirestoreCollections,
+  NotificationChannel,
   Organization,
   Project,
   User,
@@ -73,12 +74,16 @@ export class NotificationsService {
       ctx.project.statuses.find((s) => s.id === ctx.activity.statusId)?.name ??
       '';
 
+    const templateDoc = await this.templates.getByKey(
+      ctx.activity.organizationId,
+      NotificationTemplateKey.RESPONSIBLE_ASSIGNED,
+    );
     const template =
-      (await this.templates.getByKey(
-        ctx.activity.organizationId,
-        NotificationTemplateKey.RESPONSIBLE_ASSIGNED,
-      ))?.body ??
+      templateDoc?.body ??
       DEFAULT_TEMPLATES[NotificationTemplateKey.RESPONSIBLE_ASSIGNED];
+    // Canal de entrega: lo define la plantilla; si no esta configurado se usa
+    // WhatsApp por defecto.
+    const channel = templateDoc?.channel ?? NotificationChannel.WHATSAPP;
 
     for (const userId of ctx.responsibleUserIds) {
       try {
@@ -94,8 +99,7 @@ export class NotificationsService {
         };
         const body = interpolate(template, vars);
 
-        await this.sendWhatsApp(user, body);
-        await this.sendEmailNotification(user, {
+        await this.deliver(channel, user, {
           subject: `Nueva asignación: ${ctx.activity.name}`,
           body,
         });
@@ -110,6 +114,28 @@ export class NotificationsService {
   // ----------------------------------------------------------------------
   // Canales de envio
   // ----------------------------------------------------------------------
+
+  /**
+   * Entrega la notificacion por el medio configurado en la plantilla. WHATSAPP
+   * (por defecto) y EMAIL son excluyentes; BOTH envia por ambos. Cada canal es
+   * best effort: si uno no aplica (sin telefono o sin correo) simplemente se
+   * omite.
+   */
+  private async deliver(
+    channel: NotificationChannel,
+    user: User,
+    mail: { subject: string; body: string },
+  ): Promise<void> {
+    const useWhatsApp =
+      channel === NotificationChannel.WHATSAPP ||
+      channel === NotificationChannel.BOTH;
+    const useEmail =
+      channel === NotificationChannel.EMAIL ||
+      channel === NotificationChannel.BOTH;
+
+    if (useWhatsApp) await this.sendWhatsApp(user, mail.body);
+    if (useEmail) await this.sendEmailNotification(user, mail);
+  }
 
   /** Envia la notificacion por WhatsApp si el usuario tiene telefono. */
   private async sendWhatsApp(user: User, body: string): Promise<void> {

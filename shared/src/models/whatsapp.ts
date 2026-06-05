@@ -3,6 +3,7 @@ import {
   MessageDirection,
   MessageSenderType,
   MessageType,
+  NotificationChannel,
   WhatsappSessionState,
 } from '../enums';
 
@@ -74,6 +75,11 @@ export interface MessageTemplate {
   name: string;
   /** Cuerpo con placeholders, ej: "Tu actividad {{name}} cambio a {{status}}". */
   body: string;
+  /**
+   * Medio de entrega de la notificacion. Ausente = WHATSAPP (por defecto), para
+   * conservar el comportamiento de las plantillas creadas antes de este campo.
+   */
+  channel?: NotificationChannel;
   isActive: boolean;
   createdAt: IsoDate;
   updatedAt: IsoDate;

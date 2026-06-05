@@ -23,6 +23,7 @@ import {
   RuleActionType,
   RuleEvent,
   UserRole,
+  WhatsappRecipientType,
   type ActivityCustomField,
   type ProjectStatus,
 } from '@gen-task/shared';
@@ -70,6 +71,20 @@ const MESSAGE_ACTIONS: RuleActionType[] = [
   RuleActionType.REGISTER_HISTORY_EVENT,
 ];
 
+/** Acciones de WhatsApp que permiten elegir destinatario. */
+const WHATSAPP_RECIPIENT_ACTIONS: RuleActionType[] = [
+  RuleActionType.SEND_WHATSAPP,
+  RuleActionType.REQUEST_HOST_INFORMATION,
+];
+
+/** Etiquetas de los tipos de destinatario de las acciones de WhatsApp. */
+const RECIPIENT_LABELS: Record<WhatsappRecipientType, string> = {
+  HOST: 'Host de la actividad',
+  MEMBER: 'Un miembro de la organización',
+  RESPONSIBLES: 'Responsables de la actividad',
+  PHONE: 'Teléfono manual',
+};
+
 /** Borrador de un campo a crear por la accion CREATE_CUSTOM_FIELD. */
 interface FieldDraft {
   label: string;
@@ -92,8 +107,12 @@ interface ActionDraft {
   message: string;
   /** Estado destino (CHANGE_STATUS). */
   statusId: string;
-  /** Usuario a notificar/asignar (ASSIGN_RESPONSIBLE). */
+  /** Usuario a notificar/asignar (ASSIGN_RESPONSIBLE, o destinatario MEMBER de WhatsApp). */
   responsibleId: string;
+  /** Tipo de destinatario (SEND_WHATSAPP / REQUEST_HOST_INFORMATION). */
+  recipientType: WhatsappRecipientType;
+  /** Telefono fijo cuando el destinatario es PHONE. */
+  recipientPhone: string;
   /** Campos a crear (CREATE_CUSTOM_FIELD). */
   cfDrafts: FieldDraft[];
 }
@@ -104,6 +123,8 @@ function emptyActionDraft(): ActionDraft {
     message: '',
     statusId: '',
     responsibleId: '',
+    recipientType: WhatsappRecipientType.HOST,
+    recipientPhone: '',
     cfDrafts: [emptyFieldDraft()],
   };
 }
@@ -116,6 +137,15 @@ function buildActionPayload(a: ActionDraft): {
   const payload: Record<string, unknown> = {};
   if (MESSAGE_ACTIONS.includes(a.type)) {
     payload.message = a.message;
+  }
+  if (WHATSAPP_RECIPIENT_ACTIONS.includes(a.type)) {
+    payload.recipientType = a.recipientType;
+    if (a.recipientType === WhatsappRecipientType.MEMBER) {
+      payload.recipientUserId = a.responsibleId;
+    }
+    if (a.recipientType === WhatsappRecipientType.PHONE) {
+      payload.recipientPhone = a.recipientPhone.trim();
+    }
   }
   if (a.type === RuleActionType.CHANGE_STATUS) {
     payload.statusId = a.statusId;
@@ -476,6 +506,47 @@ export function RulesManager({
                     w={260}
                   />
                 )}
+                {WHATSAPP_RECIPIENT_ACTIONS.includes(act.type) && (
+                  <Select
+                    label="Enviar a"
+                    data={(Object.keys(RECIPIENT_LABELS) as WhatsappRecipientType[]).map(
+                      (t) => ({ value: t, label: RECIPIENT_LABELS[t] }),
+                    )}
+                    value={act.recipientType}
+                    onChange={(v) =>
+                      v && updateAction(ai, { recipientType: v as WhatsappRecipientType })
+                    }
+                    allowDeselect={false}
+                    w={240}
+                  />
+                )}
+                {WHATSAPP_RECIPIENT_ACTIONS.includes(act.type) &&
+                  act.recipientType === WhatsappRecipientType.MEMBER && (
+                    <Select
+                      label="Miembro"
+                      placeholder="Selecciona..."
+                      data={(members ?? []).map((m) => ({
+                        value: m.userId,
+                        label: `${m.name} · ${m.role === UserRole.ADMIN ? 'Admin' : 'Gestor'}`,
+                      }))}
+                      value={act.responsibleId || null}
+                      onChange={(v) => updateAction(ai, { responsibleId: v ?? '' })}
+                      searchable
+                      w={260}
+                    />
+                  )}
+                {WHATSAPP_RECIPIENT_ACTIONS.includes(act.type) &&
+                  act.recipientType === WhatsappRecipientType.PHONE && (
+                    <TextInput
+                      label="Teléfono"
+                      placeholder="Ej: 573001234567"
+                      value={act.recipientPhone}
+                      onChange={(e) =>
+                        updateAction(ai, { recipientPhone: e.currentTarget.value })
+                      }
+                      w={200}
+                    />
+                  )}
                 {MESSAGE_ACTIONS.includes(act.type) && (
                   <TextInput
                     label="Mensaje / comentario"

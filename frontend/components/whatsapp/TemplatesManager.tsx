@@ -1,8 +1,16 @@
 'use client';
 
 import { useState } from 'react';
+import { NotificationChannel } from '@gen-task/shared';
 import { templatesApi } from '../../services/api/templates.api';
 import { useAsync } from '../../hooks/useAsync';
+
+/** Etiquetas legibles de cada medio de entrega de notificacion. */
+const CHANNEL_LABELS: Record<NotificationChannel, string> = {
+  [NotificationChannel.WHATSAPP]: 'WhatsApp',
+  [NotificationChannel.EMAIL]: 'Correo electrónico',
+  [NotificationChannel.BOTH]: 'WhatsApp y correo',
+};
 
 /**
  * Gestion de plantillas de mensajes del bot (Fase 8). Permite crear, editar el
@@ -18,6 +26,9 @@ export function TemplatesManager({ organizationId }: { organizationId: string })
   const [key, setKey] = useState('');
   const [name, setName] = useState('');
   const [body, setBody] = useState('');
+  const [channel, setChannel] = useState<NotificationChannel>(
+    NotificationChannel.WHATSAPP,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,10 +41,12 @@ export function TemplatesManager({ organizationId }: { organizationId: string })
         key: key.trim(),
         name: name.trim(),
         body: body.trim(),
+        channel,
       });
       setKey('');
       setName('');
       setBody('');
+      setChannel(NotificationChannel.WHATSAPP);
       reload();
     } catch (err) {
       setError((err as Error).message);
@@ -56,7 +69,9 @@ export function TemplatesManager({ organizationId }: { organizationId: string })
           Para personalizar el mensaje que reciben los responsables al ser
           asignados a una actividad, crea una plantilla con la clave{' '}
           <code>RESPONSIBLE_ASSIGNED</code>. Si no existe, se usa un texto por
-          defecto. Placeholders disponibles:
+          defecto. Puedes elegir el <strong>medio de envío</strong> (WhatsApp,
+          correo o ambos); si no se define, se envía por WhatsApp. Placeholders
+          disponibles:
         </span>
         <span className="gt-muted" style={{ fontSize: 13 }}>
           <code>{'{{responsibleName}}'}</code>{' '}
@@ -107,6 +122,23 @@ export function TemplatesManager({ organizationId }: { organizationId: string })
           onChange={(e) => setBody(e.target.value)}
           required
         />
+        <label style={{ display: 'grid', gap: 4 }}>
+          <span className="gt-muted" style={{ fontSize: 13 }}>
+            Medio de envío
+          </span>
+          <select
+            className="gt-input"
+            value={channel}
+            onChange={(e) => setChannel(e.target.value as NotificationChannel)}
+            style={{ maxWidth: 240 }}
+          >
+            {Object.values(NotificationChannel).map((c) => (
+              <option key={c} value={c}>
+                {CHANNEL_LABELS[c]}
+              </option>
+            ))}
+          </select>
+        </label>
         <button className="gt-btn" type="submit" disabled={busy} style={{ justifySelf: 'start' }}>
           Crear plantilla
         </button>
@@ -125,12 +157,15 @@ function TemplateRow({
   onRemove: () => void;
 }) {
   const [body, setBody] = useState(template.body);
+  const currentChannel = template.channel ?? NotificationChannel.WHATSAPP;
+  const [channel, setChannel] = useState<NotificationChannel>(currentChannel);
   const [saving, setSaving] = useState(false);
+  const dirty = body !== template.body || channel !== currentChannel;
 
   async function save() {
     setSaving(true);
     try {
-      await templatesApi.update(template.id, { body });
+      await templatesApi.update(template.id, { body, channel });
       onChanged();
     } finally {
       setSaving(false);
@@ -166,7 +201,24 @@ function TemplateRow({
         value={body}
         onChange={(e) => setBody(e.target.value)}
       />
-      {body !== template.body && (
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span className="gt-muted" style={{ fontSize: 13 }}>
+          Medio de envío
+        </span>
+        <select
+          className="gt-input"
+          value={channel}
+          onChange={(e) => setChannel(e.target.value as NotificationChannel)}
+          style={{ maxWidth: 240 }}
+        >
+          {Object.values(NotificationChannel).map((c) => (
+            <option key={c} value={c}>
+              {CHANNEL_LABELS[c]}
+            </option>
+          ))}
+        </select>
+      </label>
+      {dirty && (
         <button
           className="gt-btn"
           style={{ justifySelf: 'start', padding: '4px 10px' }}

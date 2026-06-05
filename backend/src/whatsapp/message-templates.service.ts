@@ -1,5 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { FirestoreCollections, MessageTemplate } from '@gen-task/shared';
+import {
+  FirestoreCollections,
+  MessageTemplate,
+  NotificationChannel,
+} from '@gen-task/shared';
 import { FirebaseService } from '../firebase/firebase.service';
 import {
   docToEntity,
@@ -44,7 +48,12 @@ export class MessageTemplatesService {
 
   async create(
     organizationId: string,
-    input: { key: string; name: string; body: string },
+    input: {
+      key: string;
+      name: string;
+      body: string;
+      channel?: NotificationChannel;
+    },
   ): Promise<MessageTemplate> {
     const now = new Date().toISOString();
     const ref = this.collection.doc();
@@ -53,6 +62,7 @@ export class MessageTemplatesService {
       key: input.key,
       name: input.name,
       body: input.body,
+      channel: input.channel ?? NotificationChannel.WHATSAPP,
       isActive: true,
       createdAt: now,
       updatedAt: now,
@@ -63,7 +73,7 @@ export class MessageTemplatesService {
 
   async update(
     templateId: string,
-    patch: Partial<Pick<MessageTemplate, 'name' | 'body' | 'isActive'>>,
+    patch: Partial<Pick<MessageTemplate, 'name' | 'body' | 'channel' | 'isActive'>>,
   ): Promise<MessageTemplate> {
     const ref = this.collection.doc(templateId);
     if (!(await ref.get()).exists) {

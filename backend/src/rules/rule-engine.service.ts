@@ -8,13 +8,16 @@ import {
   ProjectRule,
   RuleActionType,
   RuleEvent,
+  User,
   UserRole,
+  WhatsappRecipientType,
 } from '@gen-task/shared';
 import { FirebaseService } from '../firebase/firebase.service';
 import { docToEntity } from '../firebase/firestore.helpers';
 import { evaluateConditions } from '../common/rule-evaluation';
 import { ActivityHistoryService } from '../activity-history/activity-history.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { WhatsappCloudApiService } from '../whatsapp/whatsapp-cloud-api.service';
 import { ProjectsService } from '../projects/projects.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -44,6 +47,7 @@ export class RuleEngineService {
     private readonly firebase: FirebaseService,
     private readonly history: ActivityHistoryService,
     private readonly whatsapp: WhatsappService,
+    private readonly cloudApi: WhatsappCloudApiService,
     private readonly projects: ProjectsService,
     private readonly notifications: NotificationsService,
   ) {}
@@ -268,22 +272,83 @@ export class RuleEngineService {
       case RuleActionType.REQUEST_HOST_INFORMATION: {
         const message = payload.message as string | undefined;
         if (!message) return activity;
-        const phone = await this.resolveActivityPhone(activity);
-        if (!phone) {
-          this.logger.debug('Accion WhatsApp sin telefono asociado; omitida.');
+        const recipients = await this.resolveRecipients(payload, activity);
+        if (recipients.length === 0) {
+          this.logger.debug(
+            'Accion WhatsApp sin destinatario con telefono; omitida.',
+          );
           return activity;
         }
-        await this.whatsapp.sendBotMessageToPhone(
-          activity.organizationId,
-          phone,
-          message,
-        );
+        for (const r of recipients) {
+          // A los contactos externos (host / telefono fijo) se les abre/usa un
+          // chat para dejar registro; al personal interno (miembro / responsables)
+          // se les envia directo, sin crear un chat de host.
+          if (r.persistChat) {
+            await this.whatsapp.sendBotMessageToPhone(
+              activity.organizationId,
+              r.phone,
+              message,
+            );
+          } else {
+            await this.cloudApi.sendText({ to: r.phone, body: message });
+          }
+        }
         return activity;
       }
 
       default:
         return activity;
     }
+  }
+
+  /**
+   * Resuelve los telefonos destinatarios de una accion de WhatsApp segun
+   * `payload.recipientType`. Si no se especifica, por compatibilidad se usa el
+   * host de la actividad. Devuelve telefonos normalizados y sin duplicados.
+   */
+  private async resolveRecipients(
+    payload: Record<string, unknown>,
+    activity: Activity,
+  ): Promise<{ phone: string; persistChat: boolean }[]> {
+    const type =
+      (payload.recipientType as WhatsappRecipientType | undefined) ??
+      WhatsappRecipientType.HOST;
+
+    const out: { phone: string; persistChat: boolean }[] = [];
+    const add = (phone: string | null | undefined, persistChat: boolean) => {
+      const p = normalizePhone(phone);
+      if (p) out.push({ phone: p, persistChat });
+    };
+
+    switch (type) {
+      case WhatsappRecipientType.HOST:
+        add(await this.resolveActivityPhone(activity), true);
+        break;
+
+      case WhatsappRecipientType.PHONE:
+        add(payload.recipientPhone as string | undefined, true);
+        break;
+
+      case WhatsappRecipientType.MEMBER: {
+        const user = await this.loadUser(
+          payload.recipientUserId as string | undefined,
+        );
+        add(user?.phone ?? null, false);
+        break;
+      }
+
+      case WhatsappRecipientType.RESPONSIBLES: {
+        for (const userId of activity.responsibleIds ?? []) {
+          const user = await this.loadUser(userId);
+          add(user?.phone ?? null, false);
+        }
+        break;
+      }
+    }
+
+    // Dedupe por telefono (un mismo numero no recibe el mensaje dos veces).
+    const seen = new Set<string>();
+    return out.filter((r) => (seen.has(r.phone) ? false : seen.add(r.phone)));
   }
 
   /** Resuelve el telefono del host asociado a la actividad (si lo hay). */
@@ -299,4 +364,28 @@ export class RuleEngineService {
     );
     return host?.phone ?? null;
   }
+
+  /** Carga un usuario por id (null si no existe o no se proporciona id). */
+  private async loadUser(userId?: string): Promise<User | null> {
+    if (!userId) return null;
+    return docToEntity<User>(
+      await this.firebase.firestore
+        .collection(FirestoreCollections.USERS)
+        .doc(userId)
+        .get(),
+    );
+  }
+}
+
+/**
+ * Normaliza un telefono al formato del WhatsApp Cloud API (solo digitos, con
+ * codigo de pais). Antepone 57 a celulares colombianos de 10 digitos que
+ * empiezan por 3. Devuelve null si no hay telefono utilizable.
+ */
+function normalizePhone(phone?: string | null): string | null {
+  if (!phone) return null;
+  const digits = phone.replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.length === 10 && digits.startsWith('3')) return `57${digits}`;
+  return digits;
 }

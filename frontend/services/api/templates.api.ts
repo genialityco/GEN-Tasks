@@ -1,4 +1,4 @@
-import type { MessageTemplate } from '@gen-task/shared';
+import type { MessageTemplate, NotificationChannel } from '@gen-task/shared';
 import { apiClient } from './client';
 
 export const templatesApi = {
@@ -8,7 +8,12 @@ export const templatesApi = {
     ),
   create: (
     organizationId: string,
-    body: { key: string; name: string; body: string },
+    body: {
+      key: string;
+      name: string;
+      body: string;
+      channel?: NotificationChannel;
+    },
   ) =>
     apiClient.post<MessageTemplate>(
       `/organizations/${organizationId}/message-templates`,
@@ -16,7 +21,12 @@ export const templatesApi = {
     ),
   update: (
     templateId: string,
-    body: { name?: string; body?: string; isActive?: boolean },
+    body: {
+      name?: string;
+      body?: string;
+      channel?: NotificationChannel;
+      isActive?: boolean;
+    },
   ) => apiClient.patch<MessageTemplate>(`/message-templates/${templateId}`, body),
   remove: (templateId: string) =>
     apiClient.delete<void>(`/message-templates/${templateId}`),

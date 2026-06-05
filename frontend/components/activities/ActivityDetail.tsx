@@ -456,8 +456,8 @@ export function ActivityDetail({
                           }
                         >
                           {h.previousStatusId
-                            ? `${statusName(project, h.previousStatusId)} → ${statusName(project, h.newStatusId ?? "")}`
-                            : `Creada en ${statusName(project, h.newStatusId ?? "")}`}
+                            ? `Actualización de estado: (${statusName(project, h.previousStatusId)} → ${statusName(project, h.newStatusId ?? "")})`
+                            : `Creación de actividad: (${statusName(project, h.newStatusId ?? "")})`}
                         </Badge>
                       )
                     }
@@ -483,202 +483,7 @@ export function ActivityDetail({
         </Collapse>
       </Stack>
 
-      {/* Info: creada, programacion y responsables. */}
-      <Paper withBorder radius="md" p="md" mb="md">
-        <Stack gap="xs">
-          <Group>
-            <Text fw={700} size="sm" c="dimmed">
-              Creada:
-            </Text>
-            <Text>{new Date(activity.createdAt).toLocaleString("es-CO")}</Text>
-          </Group>
-          <Group justify="space-between" align="center" wrap="nowrap">
-            <Group align="center" wrap="nowrap" style={{ flex: 1 }}>
-              <Text fw={700} size="sm" c="dimmed">
-                Programación:
-              </Text>
-              {editingSchedule ? (
-                <TextInput
-                  type="date"
-                  value={scheduleValue}
-                  onChange={(e) => setScheduleValue(e.currentTarget.value)}
-                  disabled={savingSchedule}
-                />
-              ) : (
-                <Group gap={6} wrap="nowrap">
-                  {complianceLevel && (
-                    <Tooltip label={COMPLIANCE_LABEL[complianceLevel]} withArrow>
-                      <IconCircleFilled
-                        size={12}
-                        color={COMPLIANCE_COLOR[complianceLevel]}
-                      />
-                    </Tooltip>
-                  )}
-                  <Text>
-                    {deadline ? deadline.toLocaleDateString("es-CO") : "—"}
-                    {deadline && complianceLevel && (
-                      <Text span size="sm" c="dimmed">
-                        {" "}
-                        · {deadlineRemainingLabel(deadline)}
-                      </Text>
-                    )}
-                  </Text>
-                </Group>
-              )}
-            </Group>
-
-            {editingSchedule ? (
-              <Group gap="xs" wrap="nowrap">
-                <Tooltip label="Guardar" withArrow>
-                  <ActionIcon
-                    color="green"
-                    variant="light"
-                    loading={savingSchedule}
-                    onClick={() => saveSchedule(scheduleValue)}
-                  >
-                    <IconCheck size={16} />
-                  </ActionIcon>
-                </Tooltip>
-                <Tooltip label="Cancelar" withArrow>
-                  <ActionIcon
-                    color="gray"
-                    variant="light"
-                    onClick={() => {
-                      setScheduleValue(
-                        activity.scheduledDate
-                          ? activity.scheduledDate.slice(0, 10)
-                          : "",
-                      );
-                      setEditingSchedule(false);
-                    }}
-                  >
-                    <IconX size={16} />
-                  </ActionIcon>
-                </Tooltip>
-              </Group>
-            ) : (
-              <Group gap="xs" wrap="nowrap">
-                <Tooltip label="Editar programación" withArrow>
-                  <ActionIcon
-                    variant="subtle"
-                    color="blue"
-                    onClick={() => setEditingSchedule(true)}
-                  >
-                    <IconPencil size={16} />
-                  </ActionIcon>
-                </Tooltip>
-                {activity.scheduledDate && (
-                  <Tooltip label="Quitar fecha" withArrow>
-                    <ActionIcon
-                      variant="subtle"
-                      color="red"
-                      loading={savingSchedule}
-                      onClick={() => saveSchedule("")}
-                    >
-                      <IconTrash size={16} />
-                    </ActionIcon>
-                  </Tooltip>
-                )}
-              </Group>
-            )}
-          </Group>
-          <Group justify="space-between" align="flex-start" wrap="nowrap">
-            <Group align="flex-start" wrap="nowrap" style={{ flex: 1 }}>
-              <Text
-                fw={700}
-                size="sm"
-                c="dimmed"
-                mt={editingResponsibles ? 6 : 0}
-              >
-                Responsables:
-              </Text>
-              {editingResponsibles ? (
-                (members ?? []).length === 0 ? (
-                  <Text c="dimmed" size="sm" style={{ flex: 1 }}>
-                    No hay administradores ni gestores para asignar.
-                  </Text>
-                ) : (
-                  <MultiSelect
-                    style={{ flex: 1 }}
-                    placeholder="Selecciona responsables..."
-                    value={responsibleIds}
-                    onChange={setResponsibleIds}
-                    data={(members ?? []).map((m) => ({
-                      value: m.userId,
-                      label: `${m.name} · ${m.role === UserRole.ADMIN ? "Admin" : "Gestor"}`,
-                    }))}
-                    nothingFoundMessage="Sin coincidencias"
-                    searchable
-                    clearable
-                    disabled={savingResponsibles}
-                  />
-                )
-              ) : (
-                <Text>
-                  {activity.responsibleIds.length > 0
-                    ? activity.responsibleIds.map(memberLabel).join(", ")
-                    : "—"}
-                </Text>
-              )}
-            </Group>
-
-            {canManageResponsibles &&
-              (editingResponsibles ? (
-                <Group gap="xs" wrap="nowrap" mt={6}>
-                  <Tooltip label="Guardar" withArrow>
-                    <ActionIcon
-                      color="green"
-                      variant="light"
-                      loading={savingResponsibles}
-                      onClick={() => saveResponsibles(responsibleIds)}
-                    >
-                      <IconCheck size={16} />
-                    </ActionIcon>
-                  </Tooltip>
-                  <Tooltip label="Cancelar" withArrow>
-                    <ActionIcon
-                      color="gray"
-                      variant="light"
-                      onClick={() => {
-                        setResponsibleIds(activity.responsibleIds ?? []);
-                        setEditingResponsibles(false);
-                      }}
-                    >
-                      <IconX size={16} />
-                    </ActionIcon>
-                  </Tooltip>
-                </Group>
-              ) : (
-                <Group gap="xs" wrap="nowrap">
-                  <Tooltip label="Editar responsables" withArrow>
-                    <ActionIcon
-                      variant="subtle"
-                      color="blue"
-                      onClick={() => {
-                        setResponsibleIds(activity.responsibleIds ?? []);
-                        setEditingResponsibles(true);
-                      }}
-                    >
-                      <IconPencil size={16} />
-                    </ActionIcon>
-                  </Tooltip>
-                  <Tooltip label="Quitar responsables" withArrow>
-                    <ActionIcon
-                      variant="subtle"
-                      color="red"
-                      loading={savingResponsibles}
-                      onClick={() => saveResponsibles([])}
-                    >
-                      <IconTrash size={16} />
-                    </ActionIcon>
-                  </Tooltip>
-                </Group>
-              ))}
-          </Group>
-        </Stack>
-      </Paper>
-
-      {/* Cambiar estado (control principal, justo debajo de la info). */}
+      {/* Cambiar estado (control principal, justo debajo del historial). */}
       <Title order={4} mb="xs">
         Cambiar Estado
       </Title>
@@ -864,6 +669,198 @@ export function ActivityDetail({
           </Stack>
         </Paper>
       )}
+
+      {/* Info: creada, programacion y responsables (al final, en horizontal). */}
+      <Paper withBorder radius="md" p="md" mt="xl">
+        <Group align="flex-start" grow wrap="wrap" gap="xl">
+          {/* Creada */}
+          <Stack gap={4}>
+            <Text fw={700} size="sm" c="dimmed">
+              Creada
+            </Text>
+            <Text>{new Date(activity.createdAt).toLocaleString("es-CO")}</Text>
+          </Stack>
+
+          {/* Programación */}
+          <Stack gap={4}>
+            <Group justify="space-between" align="center" wrap="nowrap">
+              <Text fw={700} size="sm" c="dimmed">
+                Programación
+              </Text>
+              {editingSchedule ? (
+                <Group gap="xs" wrap="nowrap">
+                  <Tooltip label="Guardar" withArrow>
+                    <ActionIcon
+                      color="green"
+                      variant="light"
+                      loading={savingSchedule}
+                      onClick={() => saveSchedule(scheduleValue)}
+                    >
+                      <IconCheck size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                  <Tooltip label="Cancelar" withArrow>
+                    <ActionIcon
+                      color="gray"
+                      variant="light"
+                      onClick={() => {
+                        setScheduleValue(
+                          activity.scheduledDate
+                            ? activity.scheduledDate.slice(0, 10)
+                            : "",
+                        );
+                        setEditingSchedule(false);
+                      }}
+                    >
+                      <IconX size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Group>
+              ) : (
+                <Group gap="xs" wrap="nowrap">
+                  <Tooltip label="Editar programación" withArrow>
+                    <ActionIcon
+                      variant="subtle"
+                      color="blue"
+                      onClick={() => setEditingSchedule(true)}
+                    >
+                      <IconPencil size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                  {activity.scheduledDate && (
+                    <Tooltip label="Quitar fecha" withArrow>
+                      <ActionIcon
+                        variant="subtle"
+                        color="red"
+                        loading={savingSchedule}
+                        onClick={() => saveSchedule("")}
+                      >
+                        <IconTrash size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
+                </Group>
+              )}
+            </Group>
+            {editingSchedule ? (
+              <TextInput
+                type="date"
+                value={scheduleValue}
+                onChange={(e) => setScheduleValue(e.currentTarget.value)}
+                disabled={savingSchedule}
+              />
+            ) : (
+              <Group gap={6} wrap="nowrap">
+                {complianceLevel && (
+                  <Tooltip label={COMPLIANCE_LABEL[complianceLevel]} withArrow>
+                    <IconCircleFilled
+                      size={12}
+                      color={COMPLIANCE_COLOR[complianceLevel]}
+                    />
+                  </Tooltip>
+                )}
+                <Text>
+                  {deadline ? deadline.toLocaleDateString("es-CO") : "—"}
+                  {deadline && complianceLevel && (
+                    <Text span size="sm" c="dimmed">
+                      {" "}
+                      · {deadlineRemainingLabel(deadline)}
+                    </Text>
+                  )}
+                </Text>
+              </Group>
+            )}
+          </Stack>
+
+          {/* Responsables */}
+          <Stack gap={4}>
+            <Group justify="space-between" align="center" wrap="nowrap">
+              <Text fw={700} size="sm" c="dimmed">
+                Responsables
+              </Text>
+              {canManageResponsibles &&
+                (editingResponsibles ? (
+                  <Group gap="xs" wrap="nowrap">
+                    <Tooltip label="Guardar" withArrow>
+                      <ActionIcon
+                        color="green"
+                        variant="light"
+                        loading={savingResponsibles}
+                        onClick={() => saveResponsibles(responsibleIds)}
+                      >
+                        <IconCheck size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label="Cancelar" withArrow>
+                      <ActionIcon
+                        color="gray"
+                        variant="light"
+                        onClick={() => {
+                          setResponsibleIds(activity.responsibleIds ?? []);
+                          setEditingResponsibles(false);
+                        }}
+                      >
+                        <IconX size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </Group>
+                ) : (
+                  <Group gap="xs" wrap="nowrap">
+                    <Tooltip label="Editar responsables" withArrow>
+                      <ActionIcon
+                        variant="subtle"
+                        color="blue"
+                        onClick={() => {
+                          setResponsibleIds(activity.responsibleIds ?? []);
+                          setEditingResponsibles(true);
+                        }}
+                      >
+                        <IconPencil size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label="Quitar responsables" withArrow>
+                      <ActionIcon
+                        variant="subtle"
+                        color="red"
+                        loading={savingResponsibles}
+                        onClick={() => saveResponsibles([])}
+                      >
+                        <IconTrash size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </Group>
+                ))}
+            </Group>
+            {editingResponsibles ? (
+              (members ?? []).length === 0 ? (
+                <Text c="dimmed" size="sm">
+                  No hay administradores ni gestores para asignar.
+                </Text>
+              ) : (
+                <MultiSelect
+                  placeholder="Selecciona responsables..."
+                  value={responsibleIds}
+                  onChange={setResponsibleIds}
+                  data={(members ?? []).map((m) => ({
+                    value: m.userId,
+                    label: `${m.name} · ${m.role === UserRole.ADMIN ? "Admin" : "Gestor"}`,
+                  }))}
+                  nothingFoundMessage="Sin coincidencias"
+                  searchable
+                  clearable
+                  disabled={savingResponsibles}
+                />
+              )
+            ) : (
+              <Text>
+                {activity.responsibleIds.length > 0
+                  ? activity.responsibleIds.map(memberLabel).join(", ")
+                  : "—"}
+              </Text>
+            )}
+          </Stack>
+        </Group>
+      </Paper>
     </>
   );
 }
@@ -882,7 +879,7 @@ function formatValue(v: unknown): string {
 function historyLabel(project: Project, h: ActivityStatusHistory): string {
   if (h.type === ActivityHistoryType.FIELD_UPDATE) return "Campos actualizados";
   if (h.previousStatusId) {
-    return `${statusName(project, h.previousStatusId)} → ${statusName(project, h.newStatusId ?? "")}`;
+    return `Actualización de estado: (${statusName(project, h.previousStatusId)} → ${statusName(project, h.newStatusId ?? "")})`;
   }
-  return `Creada en ${statusName(project, h.newStatusId ?? "")}`;
+  return `Creación de actividad: (${statusName(project, h.newStatusId ?? "")})`;
 }

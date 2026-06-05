@@ -73,6 +73,31 @@ export enum RuleActionType {
   CREATE_CUSTOM_FIELD = 'CREATE_CUSTOM_FIELD',
 }
 
+/**
+ * Destinatario de la accion SEND_WHATSAPP / REQUEST_HOST_INFORMATION de una regla.
+ * Si no se especifica, por compatibilidad se asume HOST (comportamiento previo).
+ */
+export enum WhatsappRecipientType {
+  /** Host asociado a la actividad (`activity.hostId`). Comportamiento por defecto. */
+  HOST = 'HOST',
+  /** Un miembro concreto de la organizacion (admin/gestor), por `recipientUserId`. */
+  MEMBER = 'MEMBER',
+  /** Todos los usuarios asignados como responsables de la actividad. */
+  RESPONSIBLES = 'RESPONSIBLES',
+  /** Un numero de telefono fijo escrito en la regla (`recipientPhone`). */
+  PHONE = 'PHONE',
+}
+
+/**
+ * Medio por el que se entrega una notificacion. Si una plantilla no define
+ * canal, el valor por defecto es WHATSAPP.
+ */
+export enum NotificationChannel {
+  WHATSAPP = 'WHATSAPP',
+  EMAIL = 'EMAIL',
+  BOTH = 'BOTH',
+}
+
 /** Estado del flujo de una sesion de WhatsApp. */
 export enum WhatsappSessionState {
   IDLE = 'IDLE',
