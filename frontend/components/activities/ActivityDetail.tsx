@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   Group,
@@ -16,6 +16,7 @@ import {
   ActionIcon,
   Tooltip,
   MultiSelect,
+  Transition,
 } from "@mantine/core";
 import {
   IconPencil,
@@ -81,15 +82,56 @@ export function ActivityDetail({
   // Toasts efimeros (esquina superior derecha): exito o error.
   type Toast = { id: number; message: string; type: "success" | "error" };
   const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const dismissToast = (id: number) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+  };
+
   function pushToast(message: string, type: Toast["type"] = "success") {
     const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(
-      () => setToasts((prev) => prev.filter((t) => t.id !== id)),
-      type === "error" ? 6000 : 4000,
+      () => dismissToast(id),
+      type === "error" ? 7200 : 5200,
     );
   }
   const pushError = (msg: string) => pushToast(msg, "error");
+
+  const toastMeta = {
+    success: {
+      title: "Operación completada",
+      accent: "var(--mantine-color-green-6)",
+      iconBg: "var(--mantine-color-green-1)",
+      iconColor: "var(--mantine-color-green-7)",
+      cardBg:
+        "linear-gradient(135deg, rgba(34, 197, 94, 0.16), rgba(255, 255, 255, 0.96))",
+      shadow:
+        "0 18px 40px rgba(34, 197, 94, 0.20), 0 6px 18px rgba(15, 23, 42, 0.12)",
+      icon: <IconCheck size={18} />,
+      textColor: "var(--mantine-color-dark-8)",
+    },
+    error: {
+      title: "Atención",
+      accent: "var(--mantine-color-red-6)",
+      iconBg: "var(--mantine-color-red-1)",
+      iconColor: "var(--mantine-color-red-7)",
+      cardBg:
+        "linear-gradient(135deg, rgba(239, 68, 68, 0.18), rgba(255, 255, 255, 0.98))",
+      shadow:
+        "0 20px 48px rgba(239, 68, 68, 0.24), 0 6px 18px rgba(15, 23, 42, 0.12)",
+      icon: <IconX size={18} />,
+      textColor: "var(--mantine-color-dark-8)",
+    },
+  } satisfies Record<Toast["type"], {
+    title: string;
+    accent: string;
+    iconBg: string;
+    iconColor: string;
+    cardBg: string;
+    shadow: string;
+    icon: ReactNode;
+    textColor: string;
+  }>;
 
   // Responsables: se cargan los miembros para mostrar nombres (lectura para
   // cualquier miembro); la asignacion en si depende de canManageResponsibles.
@@ -262,36 +304,89 @@ export function ActivityDetail({
     <>
       {/* Toasts: avisos efimeros (exito/error) en la esquina superior derecha. */}
       <div
+        aria-live="polite"
+        aria-atomic="true"
+        role="status"
+        className="gt-activity-toasts"
         style={{
           position: "fixed",
           top: 16,
           right: 16,
-          zIndex: 1000,
+          zIndex: 1200,
           display: "grid",
-          gap: 8,
-          maxWidth: 360,
+          gap: 10,
+          width: "min(420px, calc(100vw - 32px))",
+          pointerEvents: "none",
         }}
       >
         {toasts.map((t) => (
-          <Paper
-            key={t.id}
-            withBorder
-            shadow="md"
-            radius="md"
-            p="sm"
-            style={{
-              background: "var(--mantine-color-body)",
-              borderColor:
-                t.type === "error"
-                  ? "var(--mantine-color-red-6)"
-                  : "var(--mantine-color-green-6)",
-              borderLeftWidth: 4,
+          <Transition key={t.id} mounted transition="slide-left" duration={220} timingFunction="ease-out">
+            {(styles) => {
+              const meta = toastMeta[t.type];
+              return (
+                <Paper
+                  className={`gt-activity-toast gt-activity-toast--${t.type}`}
+                  withBorder
+                  radius="lg"
+                  p="sm"
+                  style={{
+                    ...styles,
+                    pointerEvents: "auto",
+                    overflow: "hidden",
+                    cursor: "default",
+                    background: meta.cardBg,
+                    borderColor: meta.accent,
+                    borderLeftWidth: 6,
+                    boxShadow: meta.shadow,
+                    backdropFilter: "blur(14px)",
+                    WebkitBackdropFilter: "blur(14px)",
+                    color: meta.textColor,
+                    animation: "gt-toast-pop 220ms ease-out",
+                    transition:
+                      "transform 160ms ease, box-shadow 160ms ease, filter 160ms ease",
+                  }}
+                >
+                  <Group justify="space-between" wrap="nowrap" align="flex-start" gap="sm">
+                    <Group wrap="nowrap" align="flex-start" gap="sm" style={{ minWidth: 0, flex: 1 }}>
+                      <ActionIcon
+                        radius="xl"
+                        variant="light"
+                        size="lg"
+                        aria-hidden="true"
+                        style={{
+                          background: meta.iconBg,
+                          color: meta.iconColor,
+                          boxShadow: `0 0 0 6px color-mix(in srgb, ${meta.accent} 10%, transparent)`,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {meta.icon}
+                      </ActionIcon>
+                      <Stack gap={2} style={{ minWidth: 0 }}>
+                        <Text fw={800} size="sm" lh={1.2}>
+                          {meta.title}
+                        </Text>
+                        <Text size="sm" style={{ lineHeight: 1.35, whiteSpace: "pre-wrap" }}>
+                          {t.message}
+                        </Text>
+                      </Stack>
+                    </Group>
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      size="sm"
+                      radius="xl"
+                      aria-label="Cerrar notificación"
+                      onClick={() => dismissToast(t.id)}
+                      style={{ flexShrink: 0 }}
+                    >
+                      <IconX size={14} />
+                    </ActionIcon>
+                  </Group>
+                </Paper>
+              );
             }}
-          >
-            <Text size="sm" c={t.type === "error" ? "red" : undefined}>
-              {t.message}
-            </Text>
-          </Paper>
+          </Transition>
         ))}
       </div>
 

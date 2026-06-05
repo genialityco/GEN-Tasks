@@ -69,3 +69,52 @@ button {
 .gt-error {
   color: var(--danger);
 }
+
+.gt-activity-toast {
+  transform-origin: top right;
+  animation: gt-toast-pop 220ms ease-out;
+}
+
+.gt-activity-toast:hover {
+  transform: translateY(-3px) scale(1.01);
+  filter: saturate(1.08);
+}
+
+.gt-activity-toast--success {
+  background:
+    radial-gradient(circle at top right, rgba(34, 197, 94, 0.14), transparent 42%),
+    linear-gradient(135deg, rgba(236, 253, 245, 0.98), rgba(255, 255, 255, 0.94));
+}
+
+.gt-activity-toast--error {
+  background:
+    radial-gradient(circle at top right, rgba(239, 68, 68, 0.16), transparent 42%),
+    linear-gradient(135deg, rgba(254, 242, 242, 0.99), rgba(255, 255, 255, 0.95));
+}
+
+.gt-activity-toast--success,
+.gt-activity-toast--error {
+  position: relative;
+  overflow: hidden;
+}
+
+.gt-activity-toast--success::before,
+.gt-activity-toast--error::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.08), transparent 45%);
+  pointer-events: none;
+}
+
+@keyframes gt-toast-pop {
+  from {
+    opacity: 0;
+    transform: translate3d(20px, -8px, 0) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
