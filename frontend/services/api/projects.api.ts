@@ -52,6 +52,7 @@ export const projectsApi = {
       compliance?: ProjectCompliance;
       hiddenColumnKeys?: string[];
       linearStatusFlow?: boolean;
+      alwaysShowFields?: boolean;
       transitionGuards?: StatusTransitionGuard[];
     },
   ) => apiClient.patch<Project>(`/projects/${projectId}`, body),

@@ -169,6 +169,9 @@ export class ProjectsService {
     if (dto.linearStatusFlow !== undefined) {
       patch.linearStatusFlow = dto.linearStatusFlow;
     }
+    if (dto.alwaysShowFields !== undefined) {
+      patch.alwaysShowFields = dto.alwaysShowFields;
+    }
     if (dto.transitionGuards !== undefined) {
       // Objetos planos para Firestore; asigna id a los guards que no lo traigan.
       patch.transitionGuards = dto.transitionGuards.map((g) => ({

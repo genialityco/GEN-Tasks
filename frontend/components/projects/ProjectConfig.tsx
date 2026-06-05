@@ -76,6 +76,7 @@ export function ProjectConfig({
         projectId={project.id}
         fields={project.customFields}
         statuses={project.statuses}
+        alwaysShowFields={project.alwaysShowFields}
         onChanged={onChanged}
       />
       <ProjectRulesConfig project={project} onChanged={onChanged} />

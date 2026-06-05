@@ -16,7 +16,6 @@ import {
   ActionIcon,
   Tooltip,
   MultiSelect,
-  Transition,
 } from "@mantine/core";
 import {
   IconPencil,
@@ -24,6 +23,7 @@ import {
   IconCheck,
   IconX,
   IconCircleFilled,
+  IconLock,
 } from "@tabler/icons-react";
 import {
   ActivityHistoryType,
@@ -100,27 +100,29 @@ export function ActivityDetail({
   const toastMeta = {
     success: {
       title: "Operación completada",
-      accent: "var(--mantine-color-green-6)",
-      iconBg: "var(--mantine-color-green-1)",
-      iconColor: "var(--mantine-color-green-7)",
+      accent: "var(--mantine-color-green-8)",
+      iconBg: "rgba(255, 255, 255, 0.25)",
+      iconColor: "#ffffff",
       cardBg:
-        "linear-gradient(135deg, rgba(34, 197, 94, 0.16), rgba(255, 255, 255, 0.96))",
+        "linear-gradient(135deg, var(--mantine-color-green-6), var(--mantine-color-green-8))",
       shadow:
-        "0 18px 40px rgba(34, 197, 94, 0.20), 0 6px 18px rgba(15, 23, 42, 0.12)",
-      icon: <IconCheck size={18} />,
-      textColor: "var(--mantine-color-dark-8)",
+        "0 24px 55px rgba(34, 197, 94, 0.45), 0 8px 22px rgba(15, 23, 42, 0.20)",
+      icon: <IconCheck size={20} stroke={3} />,
+      textColor: "#ffffff",
+      barColor: "rgba(255, 255, 255, 0.9)",
     },
     error: {
       title: "Atención",
-      accent: "var(--mantine-color-red-6)",
-      iconBg: "var(--mantine-color-red-1)",
-      iconColor: "var(--mantine-color-red-7)",
+      accent: "var(--mantine-color-red-8)",
+      iconBg: "rgba(255, 255, 255, 0.25)",
+      iconColor: "#ffffff",
       cardBg:
-        "linear-gradient(135deg, rgba(239, 68, 68, 0.18), rgba(255, 255, 255, 0.98))",
+        "linear-gradient(135deg, var(--mantine-color-red-6), var(--mantine-color-red-8))",
       shadow:
-        "0 20px 48px rgba(239, 68, 68, 0.24), 0 6px 18px rgba(15, 23, 42, 0.12)",
-      icon: <IconX size={18} />,
-      textColor: "var(--mantine-color-dark-8)",
+        "0 24px 55px rgba(239, 68, 68, 0.48), 0 8px 22px rgba(15, 23, 42, 0.20)",
+      icon: <IconX size={20} stroke={3} />,
+      textColor: "#ffffff",
+      barColor: "rgba(255, 255, 255, 0.95)",
     },
   } satisfies Record<Toast["type"], {
     title: string;
@@ -131,6 +133,7 @@ export function ActivityDetail({
     shadow: string;
     icon: ReactNode;
     textColor: string;
+    barColor: string;
   }>;
 
   // Responsables: se cargan los miembros para mostrar nombres (lectura para
@@ -236,12 +239,20 @@ export function ActivityDetail({
     if (Array.isArray(v)) return v.length > 0;
     return v !== undefined && v !== null && v !== "";
   };
-  const editableFields = project.customFields.filter(
-    (f) =>
-      f.isActive &&
-      !f.isArchived &&
-      (isFieldVisibleForActivity(f, activityForVisibility) || hasValue(f.key)),
-  );
+  // Con `alwaysShowFields` el proyecto muestra TODOS los campos activos; los que
+  // aun no cumplen su visibilidad se marcan `locked` (se ven, no se editan).
+  // Sin esa opcion, el campo solo se incluye si su visibilidad aplica o ya tiene
+  // valor (comportamiento por defecto: ocultar hasta que la regla se cumpla).
+  const editableFields = project.customFields
+    .filter((f) => f.isActive && !f.isArchived)
+    .map((f) => {
+      const available =
+        isFieldVisibleForActivity(f, activityForVisibility) || hasValue(f.key);
+      return { field: f, locked: !available };
+    })
+    .filter(
+      ({ locked }) => !locked || project.alwaysShowFields === true,
+    );
 
   const selectableStatuses = project.statuses
     .filter((s) => !s.isArchived)
@@ -319,75 +330,69 @@ export function ActivityDetail({
           pointerEvents: "none",
         }}
       >
-        {toasts.map((t) => (
-          <Transition key={t.id} mounted transition="slide-left" duration={220} timingFunction="ease-out">
-            {(styles) => {
-              const meta = toastMeta[t.type];
-              return (
-                <Paper
-                  className={`gt-activity-toast gt-activity-toast--${t.type}`}
-                  withBorder
-                  radius="lg"
-                  p="sm"
-                  style={{
-                    ...styles,
-                    pointerEvents: "auto",
-                    overflow: "hidden",
-                    cursor: "default",
-                    background: meta.cardBg,
-                    borderColor: meta.accent,
-                    borderLeftWidth: 6,
-                    boxShadow: meta.shadow,
-                    backdropFilter: "blur(14px)",
-                    WebkitBackdropFilter: "blur(14px)",
-                    color: meta.textColor,
-                    animation: "gt-toast-pop 220ms ease-out",
-                    transition:
-                      "transform 160ms ease, box-shadow 160ms ease, filter 160ms ease",
-                  }}
+        {toasts.map((t) => {
+          const meta = toastMeta[t.type];
+          const duration = t.type === "error" ? 7200 : 5200;
+          return (
+            <Paper
+              key={t.id}
+              className={`gt-activity-toast gt-activity-toast--${t.type}`}
+              radius="lg"
+              p="sm"
+              style={{
+                pointerEvents: "auto",
+                position: "relative",
+                overflow: "hidden",
+                cursor: "default",
+                background: meta.cardBg,
+                border: "1px solid rgba(255, 255, 255, 0.25)",
+                boxShadow: meta.shadow,
+                color: meta.textColor,
+              }}
+            >
+              <Group justify="space-between" wrap="nowrap" align="flex-start" gap="sm">
+                <Group wrap="nowrap" align="flex-start" gap="sm" style={{ minWidth: 0, flex: 1 }}>
+                  <ActionIcon
+                    className="gt-activity-toast__icon"
+                    radius="xl"
+                    variant="transparent"
+                    size="lg"
+                    aria-hidden="true"
+                    style={{
+                      background: meta.iconBg,
+                      color: meta.iconColor,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {meta.icon}
+                  </ActionIcon>
+                  <Stack gap={2} style={{ minWidth: 0 }}>
+                    <Text fw={800} size="sm" lh={1.2} c="#ffffff" style={{ letterSpacing: 0.2 }}>
+                      {meta.title}
+                    </Text>
+                    <Text size="sm" c="#ffffff" style={{ lineHeight: 1.35, whiteSpace: "pre-wrap", opacity: 0.95 }}>
+                      {t.message}
+                    </Text>
+                  </Stack>
+                </Group>
+                <ActionIcon
+                  variant="subtle"
+                  size="sm"
+                  radius="xl"
+                  aria-label="Cerrar notificación"
+                  onClick={() => dismissToast(t.id)}
+                  style={{ flexShrink: 0, color: "rgba(255, 255, 255, 0.85)" }}
                 >
-                  <Group justify="space-between" wrap="nowrap" align="flex-start" gap="sm">
-                    <Group wrap="nowrap" align="flex-start" gap="sm" style={{ minWidth: 0, flex: 1 }}>
-                      <ActionIcon
-                        radius="xl"
-                        variant="light"
-                        size="lg"
-                        aria-hidden="true"
-                        style={{
-                          background: meta.iconBg,
-                          color: meta.iconColor,
-                          boxShadow: `0 0 0 6px color-mix(in srgb, ${meta.accent} 10%, transparent)`,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {meta.icon}
-                      </ActionIcon>
-                      <Stack gap={2} style={{ minWidth: 0 }}>
-                        <Text fw={800} size="sm" lh={1.2}>
-                          {meta.title}
-                        </Text>
-                        <Text size="sm" style={{ lineHeight: 1.35, whiteSpace: "pre-wrap" }}>
-                          {t.message}
-                        </Text>
-                      </Stack>
-                    </Group>
-                    <ActionIcon
-                      variant="subtle"
-                      color="gray"
-                      size="sm"
-                      radius="xl"
-                      aria-label="Cerrar notificación"
-                      onClick={() => dismissToast(t.id)}
-                      style={{ flexShrink: 0 }}
-                    >
-                      <IconX size={14} />
-                    </ActionIcon>
-                  </Group>
-                </Paper>
-              );
-            }}
-          </Transition>
-        ))}
+                  <IconX size={14} />
+                </ActionIcon>
+              </Group>
+              <div
+                className="gt-activity-toast__bar"
+                style={{ background: meta.barColor, animationDuration: `${duration}ms` }}
+              />
+            </Paper>
+          );
+        })}
       </div>
 
       <Group justify="space-between" mb="lg">
@@ -722,9 +727,49 @@ export function ActivityDetail({
             Campos
           </Title>
           <Stack gap="sm">
-            {editableFields.map((field) => {
-              const isEditing = editingFields.has(field.key);
+            {editableFields.map(({ field, locked }) => {
+              const isEditing = !locked && editingFields.has(field.key);
               const value = values[field.key];
+
+              // Campo bloqueado: se ve pero no se puede llenar hasta que cumpla
+              // sus reglas de visibilidad. Fila de solo lectura con candado.
+              if (locked) {
+                return (
+                  <Group
+                    key={field.id}
+                    justify="space-between"
+                    align="flex-end"
+                    wrap="nowrap"
+                    gap="sm"
+                    style={{ opacity: 0.6 }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <Group gap={6} wrap="nowrap">
+                        <Text size="sm" fw={500}>
+                          {field.label}
+                          {field.required ? " *" : ""}
+                        </Text>
+                        <Badge
+                          size="xs"
+                          variant="light"
+                          color="gray-100"
+                          leftSection={<IconLock size={10} />}
+                        >
+                          bloqueado
+                        </Badge>
+                      </Group>
+                    </div>
+                    <Tooltip
+                      label="Este campo se podrá llenar cuando se cumplan sus reglas"
+                      withArrow
+                    >
+                      <ActionIcon variant="subtle" color="gray" disabled>
+                        <IconLock size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </Group>
+                );
+              }
 
               // Campos de archivo: el uploader (con previsualizacion) siempre
               // visible; no usa el toggle de edicion ni el formato de texto.

@@ -78,6 +78,10 @@ export class UpdateProjectDto {
   linearStatusFlow?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  alwaysShowFields?: boolean;
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => StatusTransitionGuardDto)

@@ -153,6 +153,14 @@ export interface Project {
   hiddenColumnKeys?: string[];
   /** Si `true`, un cambio de estado solo puede ir a un estado adyacente por `order`. */
   linearStatusFlow?: boolean;
+  /**
+   * Si `true`, en el detalle de la actividad se muestran TODOS los campos
+   * (incluidos los que aun no cumplen sus condiciones de visibilidad), pero los
+   * que no las cumplen aparecen bloqueados: se ven, no se pueden llenar hasta que
+   * se cumplan sus reglas. Si es `false`/ausente (comportamiento por defecto) los
+   * campos permanecen ocultos hasta que su visibilidad aplique.
+   */
+  alwaysShowFields?: boolean;
   /** Restricciones que deben cumplirse para permitir un cambio de estado. */
   transitionGuards?: StatusTransitionGuard[];
   isActive: boolean;

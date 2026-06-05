@@ -62,11 +62,14 @@ export function CustomFieldsManager({
   projectId,
   fields,
   statuses,
+  alwaysShowFields = false,
   onChanged,
 }: {
   projectId: string;
   fields: ActivityCustomField[];
   statuses: ProjectStatus[];
+  /** Si el proyecto muestra los campos bloqueados en vez de ocultarlos. */
+  alwaysShowFields?: boolean;
   onChanged: () => void;
 }) {
   const [label, setLabel] = useState('');
@@ -78,6 +81,7 @@ export function CustomFieldsManager({
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [togglingVisibility, setTogglingVisibility] = useState(false);
 
   // Renombrado inline (solo el nombre/label; la `key` permanece estable).
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -153,6 +157,19 @@ export function CustomFieldsManager({
     }
   }
 
+  async function toggleAlwaysShowFields(checked: boolean) {
+    setTogglingVisibility(true);
+    setError(null);
+    try {
+      await projectsApi.update(projectId, { alwaysShowFields: checked });
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setTogglingVisibility(false);
+    }
+  }
+
   async function add(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -225,6 +242,14 @@ export function CustomFieldsManager({
           </Button>
         </Group>
         {error && <Alert color="red">{error}</Alert>}
+
+        <Checkbox
+          label="Mostrar todos los campos (bloqueados hasta que se cumplan las reglas)"
+          description="Si lo activas, los campos con condiciones de visibilidad se muestran siempre pero no se pueden llenar hasta que su regla se cumpla. Si lo desactivas, permanecen ocultos hasta entonces."
+          checked={alwaysShowFields}
+          disabled={togglingVisibility}
+          onChange={(e) => toggleAlwaysShowFields(e.currentTarget.checked)}
+        />
 
         <Stack gap={6}>
           {visible.map((f) => {
