@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   Activity,
   FirestoreCollections,
@@ -11,6 +12,7 @@ import { FirebaseService } from '../firebase/firebase.service';
 import { docToEntity } from '../firebase/firestore.helpers';
 import { WhatsappCloudApiService } from '../whatsapp/whatsapp-cloud-api.service';
 import { MessageTemplatesService } from '../whatsapp/message-templates.service';
+import { EmailService } from './email.service';
 
 /**
  * Claves logicas de las plantillas de notificacion. Cada clave puede tener una
@@ -28,7 +30,8 @@ const DEFAULT_TEMPLATES: Record<string, string> = {
     'Hola {{responsibleName}} 👋\n' +
     'Se te ha asignado como responsable de la actividad *{{activityName}}* ' +
     'en el proyecto *{{projectName}}* ({{organizationName}}).\n' +
-    'Estado actual: {{statusName}}.',
+    'Estado actual: {{statusName}}.\n' +
+    'Abrela aqui: {{link}}',
 };
 
 /** Contexto para renderizar la notificacion de asignacion de responsable. */
@@ -55,7 +58,22 @@ export class NotificationsService {
     private readonly firebase: FirebaseService,
     private readonly cloudApi: WhatsappCloudApiService,
     private readonly templates: MessageTemplatesService,
+    private readonly email: EmailService,
+    private readonly config: ConfigService,
   ) {}
+
+  /**
+   * Construye el enlace directo al detalle de una actividad en el frontend. Al
+   * abrirlo, el usuario pasa por el login (las rutas estan protegidas por
+   * RequireAuth). La base se toma de FRONTEND_ORIGIN (sin barra final).
+   */
+  private activityLink(activity: Activity): string {
+    const base = (this.config.get<string>('FRONTEND_ORIGIN') ?? '').replace(/\/$/, '');
+    return (
+      `${base}/organizations/${activity.organizationId}` +
+      `/projects/${activity.projectId}/activities/${activity.id}`
+    );
+  }
 
   /**
    * Notifica a los usuarios recien asignados como responsables de una actividad.
@@ -96,6 +114,8 @@ export class NotificationsService {
           statusName,
           projectName: ctx.project.name,
           organizationName: organization?.name ?? '',
+          // Enlace directo a la actividad (pide login al abrirlo).
+          link: this.activityLink(ctx.activity),
         };
         const body = interpolate(template, vars);
 
@@ -150,19 +170,9 @@ export class NotificationsService {
   }
 
   /**
-   * Envio de notificaciones por correo electronico.
-   *
-   * PENDIENTE DE INTEGRACION: cuando se contrate/integre un proveedor de correo
-   * (p.ej. SendGrid, Amazon SES, Resend o SMTP), implementar aqui el envio real.
-   * Se deja la firma y el punto de llamada listos para que activarlo no requiera
-   * tocar la logica de negocio (activities/rules ya invocan este flujo).
-   *
-   * Pasos sugeridos para la integracion:
-   *  1. Anadir las credenciales del proveedor a variables de entorno
-   *     (p.ej. MAIL_PROVIDER, MAIL_API_KEY, MAIL_FROM).
-   *  2. Inyectar un cliente de correo en este servicio (o un EmailService propio).
-   *  3. Reemplazar el log de abajo por la llamada real al proveedor.
-   *  4. Respetar el caracter "best effort": capturar errores sin propagarlos.
+   * Envio de notificaciones por correo electronico via {@link EmailService}
+   * (Amazon SES). Best effort: si el usuario no tiene correo o SES no esta
+   * configurado, el envio se omite sin romper la operacion de negocio.
    *
    * @param user  Destinatario (se usa user.email).
    * @param mail  Asunto y cuerpo ya renderizados.
@@ -171,11 +181,17 @@ export class NotificationsService {
     user: User,
     mail: { subject: string; body: string },
   ): Promise<void> {
-    if (!user.email) return;
-    // TODO(email): integrar proveedor de correo y enviar `mail` a `user.email`.
-    this.logger.debug(
-      `[email pendiente] Para: ${user.email} | Asunto: ${mail.subject}`,
-    );
+    if (!user.email) {
+      this.logger.debug(
+        `Usuario ${user.id} sin correo; se omite notificacion por email.`,
+      );
+      return;
+    }
+    await this.email.send({
+      to: user.email,
+      subject: mail.subject,
+      body: mail.body,
+    });
   }
 
   // ----------------------------------------------------------------------

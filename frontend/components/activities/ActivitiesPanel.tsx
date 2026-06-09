@@ -15,7 +15,8 @@ import {
   Modal,
   SegmentedControl,
 } from '@mantine/core';
-import type { Activity, Project, UserRole } from '@gen-task/shared';
+import { UserRole } from '@gen-task/shared';
+import type { Activity, Project } from '@gen-task/shared';
 import { useActivities } from '../../hooks/useActivities';
 import { useActivitiesFilter } from '../../hooks/useActivitiesFilter';
 import { useAsync } from '../../hooks/useAsync';
@@ -24,6 +25,7 @@ import { ActivitiesTable } from './ActivitiesTable';
 import { ActivitiesBoard } from './ActivitiesBoard';
 import { CreateActivityForm } from './CreateActivityForm';
 import { QuickEditActivityModal } from './QuickEditActivityModal';
+import { ExcelToolbar } from './ExcelToolbar';
 import { countBySubTab } from './activities.helpers';
 
 /**
@@ -82,6 +84,13 @@ export function ActivitiesPanel({
             ]}
             size="xs"
           />
+          {(role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN) && (
+            <ExcelToolbar
+              projectId={project.id}
+              projectName={project.name}
+              onImported={reload}
+            />
+          )}
           {!creating && (
             <Button onClick={() => setCreating(true)}>Nueva actividad</Button>
           )}

@@ -13,6 +13,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@aws-sdk/client-ses": "^3.1065.0",
     "@gen-task/shared": "*",
     "@nestjs/common": "^10.4.4",
     "@nestjs/config": "^3.2.3",

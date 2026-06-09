@@ -4,6 +4,7 @@ import {
   CustomFieldType,
   FirestoreCollections,
   Host,
+  Organization,
   Project,
   ProjectRule,
   RuleActionType,
@@ -56,6 +57,23 @@ export class RuleEngineService {
     return this.firebase.firestore.collection(FirestoreCollections.ACTIVITIES);
   }
 
+  /** Indica si la organizacion tiene habilitada la funcionalidad de triggers. */
+  private async triggersEnabled(organizationId: string): Promise<boolean> {
+    const org = docToEntity<Organization>(
+      await this.firebase.firestore
+        .collection(FirestoreCollections.ORGANIZATIONS)
+        .doc(organizationId)
+        .get(),
+    );
+    if (org && org.enabledFeatures?.triggersEnabled === false) {
+      this.logger.debug(
+        `Triggers deshabilitados para la organizacion ${organizationId}; reglas omitidas.`,
+      );
+      return false;
+    }
+    return true;
+  }
+
   /**
    * Ejecuta todas las reglas activas del proyecto que coinciden con el evento.
    * Devuelve la actividad (posiblemente actualizada por las acciones).
@@ -74,6 +92,12 @@ export class RuleEngineService {
      */
     changedFieldKeys?: string[],
   ): Promise<Activity> {
+    // Gate de funcionalidad: si el SUPER_ADMIN no habilito "triggers" para la
+    // organizacion, no se evalua ninguna regla (la actividad pasa sin cambios).
+    if (!(await this.triggersEnabled(activity.organizationId))) {
+      return activity;
+    }
+
     const rules = (project.rules ?? []).filter(
       (r) => r.isActive && r.event === event,
     );

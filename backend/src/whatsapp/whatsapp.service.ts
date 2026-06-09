@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   Activity,
   ActivityCustomField,
@@ -35,6 +40,24 @@ export interface NormalizedInboundMessage {
   mediaUrl?: string;
   profileName?: string;
 }
+
+/** Horas de inactividad tras las que una sesion en flujo expira y vuelve al menu. */
+const SESSION_TIMEOUT_HOURS = 24;
+
+/** Cuantas actividades del Host se listan como maximo en los flujos del bot. */
+const HOST_ACTIVITIES_LIMIT = 10;
+
+/**
+ * Contexto temporal acumulado durante la creacion de una actividad por el bot.
+ * Es un `type` (no `interface`) para que sea asignable a `tempData`
+ * (`Record<string, unknown>`) de la sesion.
+ */
+type CreationTempData = {
+  name?: string;
+  values?: Record<string, unknown>;
+  /** Adjuntos (URLs) acumulados para el campo foto/video/archivo en curso. */
+  attachments?: string[];
+};
 
 @Injectable()
 export class WhatsappService {
@@ -102,6 +125,12 @@ export class WhatsappService {
     const ref = this.chats.doc(chatId);
     const snap = await ref.get();
     if (!snap.exists) throw new NotFoundException('Chat no encontrado.');
+    const existing = docToEntity<WhatsappChat>(snap)!;
+    if (!(await this.featureEnabled(existing.organizationId, 'manualChatEnabled'))) {
+      throw new ForbiddenException(
+        'El chat manual no esta habilitado para esta organizacion.',
+      );
+    }
     await ref.update({ botEnabled, updatedAt: new Date().toISOString() });
     // Refleja el estado en la sesion para que el bot lo respete.
     const chat = docToEntity<WhatsappChat>(await ref.get())!;
@@ -117,6 +146,11 @@ export class WhatsappService {
   ): Promise<WhatsappMessage> {
     const chat = docToEntity<WhatsappChat>(await this.chats.doc(chatId).get());
     if (!chat) throw new NotFoundException('Chat no encontrado.');
+    if (!(await this.featureEnabled(chat.organizationId, 'manualChatEnabled'))) {
+      throw new ForbiddenException(
+        'El chat manual no esta habilitado para esta organizacion.',
+      );
+    }
 
     await this.cloudApi.sendText({ to: chat.phone, body });
 
@@ -181,6 +215,15 @@ export class WhatsappService {
       return;
     }
 
+    // Gate de funcionalidad: si el SUPER_ADMIN no habilito WhatsApp para la
+    // organizacion, no se procesa el mensaje (la org no usa el canal).
+    if (!(await this.featureEnabled(organizationId, 'whatsappEnabled'))) {
+      this.logger.debug(
+        `WhatsApp deshabilitado para la organizacion ${organizationId}; mensaje ignorado.`,
+      );
+      return;
+    }
+
     const host = await this.hosts.findOrCreate(
       organizationId,
       msg.phone,
@@ -214,9 +257,13 @@ export class WhatsappService {
   // ----------------------------------------------------------------------
 
   /**
-   * Procesa el texto del Host segun el estado de su sesion. Flujo soportado:
-   * menu -> crear actividad (nombre + campos personalizados) y consultar
-   * actividades propias. Reiniciable con la palabra INICIO.
+   * Procesa el texto del Host segun el estado de su sesion. Flujos soportados:
+   *  1) Crear actividad (nombre + campos personalizados).
+   *  2) Consultar mis actividades (lista + detalle).
+   *  3) Editar una actividad (elegir actividad -> campo -> nuevo valor).
+   *  4) Archivar una actividad (elegir actividad -> confirmar).
+   * Reiniciable en cualquier momento con la palabra INICIO. Las sesiones en un
+   * flujo activo expiran por inactividad (ver SESSION_TIMEOUT_HOURS).
    */
   private async processBotFlow(
     session: WhatsappSession,
@@ -229,18 +276,36 @@ export class WhatsappService {
 
     // Reinicio global.
     if (lower === 'inicio' || lower === 'menu') {
-      await this.updateSession(session.id, {
-        state: WhatsappSessionState.IDLE,
-        tempData: {},
-        currentFieldIndex: undefined,
-      });
+      await this.resetSession(session.id);
       return this.reply(chat, this.menuText());
+    }
+
+    // Expiracion por inactividad: si la sesion esta en un flujo activo y paso
+    // demasiado tiempo desde el ultimo mensaje, se reinicia al menu.
+    if (
+      session.state !== WhatsappSessionState.IDLE &&
+      this.isSessionExpired(session)
+    ) {
+      await this.resetSession(session.id);
+      return this.reply(
+        chat,
+        `Tu sesion expiro por inactividad (${SESSION_TIMEOUT_HOURS} horas). Volvamos a empezar.\n\n${this.menuText()}`,
+      );
     }
 
     switch (session.state) {
       case WhatsappSessionState.CREATING_ACTIVITY:
       case WhatsappSessionState.WAITING_FIELD_VALUE:
-        return this.handleCreationStep(session, chat, host, text);
+        return this.handleCreationStep(session, chat, host, text, msg.mediaUrl);
+
+      case WhatsappSessionState.CONSULTING_ACTIVITIES:
+        return this.handleConsultSelection(session, chat, text);
+
+      case WhatsappSessionState.EDITING_ACTIVITY:
+        return this.handleEditStep(session, chat, host, text);
+
+      case WhatsappSessionState.ARCHIVING_ACTIVITY:
+        return this.handleArchiveSelection(session, chat, text);
 
       case WhatsappSessionState.IDLE:
       default:
@@ -248,7 +313,13 @@ export class WhatsappService {
           return this.startCreation(session, chat);
         }
         if (lower === '2' || lower.startsWith('consultar')) {
-          return this.listHostActivities(chat, host);
+          return this.startConsult(session, chat, host);
+        }
+        if (lower === '3' || lower.startsWith('editar')) {
+          return this.startEdit(session, chat, host);
+        }
+        if (lower === '4' || lower.startsWith('archivar')) {
+          return this.startArchive(session, chat, host);
         }
         return this.reply(chat, this.menuText());
     }
@@ -259,9 +330,31 @@ export class WhatsappService {
       'Bienvenido a GEN-Task. Escribe el numero de una opcion:',
       '1) Crear actividad',
       '2) Consultar mis actividades',
+      '3) Editar una actividad',
+      '4) Archivar una actividad',
       '',
       'En cualquier momento escribe INICIO para volver a este menu.',
     ].join('\n');
+  }
+
+  /** Una sesion en flujo expira si su ultimo mensaje supera el umbral de inactividad. */
+  private isSessionExpired(session: WhatsappSession): boolean {
+    const last = Date.parse(session.lastActivityAt);
+    if (Number.isNaN(last)) return false;
+    return Date.now() - last > SESSION_TIMEOUT_HOURS * 60 * 60 * 1000;
+  }
+
+  /**
+   * Reinicia la sesion al menu. Limpia `tempData` (el contexto del flujo en
+   * curso); el resto de campos auxiliares (projectId, currentFieldIndex, ...) los
+   * reinicializa cada flujo al arrancar, por lo que un valor residual nunca se
+   * usa antes de reescribirse.
+   */
+  private async resetSession(sessionId: string): Promise<void> {
+    await this.updateSession(sessionId, {
+      state: WhatsappSessionState.IDLE,
+      tempData: {},
+    });
   }
 
   /** Inicia la creacion: resuelve proyecto y pide el nombre de la actividad. */
@@ -291,6 +384,7 @@ export class WhatsappService {
     chat: WhatsappChat,
     host: Host,
     text: string,
+    mediaUrl?: string,
   ): Promise<void> {
     if (!session.projectId) {
       await this.updateSession(session.id, { state: WhatsappSessionState.IDLE });
@@ -305,10 +399,7 @@ export class WhatsappService {
     }
 
     const fields = this.botFields(project);
-    const tempData = (session.tempData ?? {}) as {
-      name?: string;
-      values?: Record<string, unknown>;
-    };
+    const tempData = (session.tempData ?? {}) as CreationTempData;
     const values = tempData.values ?? {};
     const index = session.currentFieldIndex ?? -1;
 
@@ -324,6 +415,15 @@ export class WhatsappService {
 
     // Paso de un campo personalizado.
     const field = fields[index];
+
+    // Campos de adjunto (foto/video/archivo): se recolectan por separado,
+    // permitiendo enviar varios y cerrar con "listo".
+    if (field && this.isAttachmentField(field)) {
+      return this.handleAttachmentStep(
+        session, chat, host, project, fields, tempData, index, field, text, mediaUrl,
+      );
+    }
+
     if (field) {
       const parsed = this.parseFieldValue(field, text);
       if (parsed.error) return this.reply(chat, parsed.error);
@@ -340,6 +440,71 @@ export class WhatsappService {
     );
   }
 
+  /** Indica si un campo almacena adjuntos (foto, video o archivo). */
+  private isAttachmentField(field: ActivityCustomField): boolean {
+    return (
+      field.type === CustomFieldType.IMAGE ||
+      field.type === CustomFieldType.VIDEO ||
+      field.type === CustomFieldType.FILE
+    );
+  }
+
+  /**
+   * Recolecta los adjuntos de un campo foto/video/archivo. Acumula cada media
+   * recibida en `tempData.attachments` y avanza al siguiente campo cuando el Host
+   * escribe "listo" (validando el minimo si el campo es obligatorio).
+   */
+  private async handleAttachmentStep(
+    session: WhatsappSession,
+    chat: WhatsappChat,
+    host: Host,
+    project: Project,
+    fields: ActivityCustomField[],
+    tempData: CreationTempData,
+    index: number,
+    field: ActivityCustomField,
+    text: string,
+    mediaUrl?: string,
+  ): Promise<void> {
+    const attachments = tempData.attachments ?? [];
+
+    // Llego un archivo: se acumula y se sigue esperando mas (o "listo").
+    if (mediaUrl) {
+      const next = [...attachments, mediaUrl];
+      await this.updateSession(session.id, {
+        tempData: { ...tempData, attachments: next },
+      });
+      return this.reply(
+        chat,
+        `Archivo ${next.length} recibido. Envia mas, o escribe *listo* para continuar.`,
+      );
+    }
+
+    // El Host escribe "listo": cierra la recoleccion del campo.
+    if (text.trim().toLowerCase() === 'listo') {
+      if (attachments.length === 0 && field.required) {
+        return this.reply(chat, `Envia al menos un archivo para *${field.label}*.`);
+      }
+      const values = tempData.values ?? {};
+      if (attachments.length > 0) values[field.key] = attachments;
+      return this.advanceCreation(
+        session,
+        chat,
+        host,
+        project,
+        fields,
+        { ...tempData, values, attachments: [] },
+        index + 1,
+      );
+    }
+
+    // Cualquier otro texto: recordar como continuar.
+    return this.reply(
+      chat,
+      `Envia el archivo para *${field.label}*, o escribe *listo* para continuar.`,
+    );
+  }
+
   /** Avanza al siguiente campo o finaliza creando la actividad. */
   private async advanceCreation(
     session: WhatsappSession,
@@ -347,7 +512,7 @@ export class WhatsappService {
     host: Host,
     project: Project,
     fields: ActivityCustomField[],
-    tempData: { name?: string; values?: Record<string, unknown> },
+    tempData: CreationTempData,
     nextIndex: number,
   ): Promise<void> {
     if (nextIndex < fields.length) {
@@ -377,31 +542,329 @@ export class WhatsappService {
     );
   }
 
-  /** Lista las actividades creadas por el propio Host. */
-  private async listHostActivities(
-    chat: WhatsappChat,
-    host: Host,
-  ): Promise<void> {
+  /** Devuelve las actividades activas del Host (las mas recientes primero). */
+  private async loadHostActivities(host: Host): Promise<Activity[]> {
     const snap = await this.activities
       .where('hostId', '==', host.id)
       .where('isArchived', '==', false)
-      .limit(10)
+      .limit(HOST_ACTIVITIES_LIMIT)
       .get();
     const activities = snapshotToEntities<Activity>(snap);
+    return activities.sort(
+      (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+    );
+  }
+
+  /** Texto numerado de una lista de actividades (con su estado). */
+  private activityListText(
+    activities: Activity[],
+    project: Project | null,
+  ): string {
+    const statusName = (id: string) =>
+      project?.statuses.find((s) => s.id === id)?.name ?? id;
+    return activities
+      .map((a, i) => `${i + 1}) ${a.name} — ${statusName(a.statusId)}`)
+      .join('\n');
+  }
+
+  /**
+   * Valida la seleccion numerica del Host sobre una lista de ids guardada en la
+   * sesion. Devuelve el id elegido o null (y avisa al Host) si es invalida.
+   */
+  private async pickFromList(
+    chat: WhatsappChat,
+    ids: string[],
+    text: string,
+  ): Promise<string | null> {
+    const idx = Number(text) - 1;
+    if (!Number.isInteger(idx) || idx < 0 || idx >= ids.length) {
+      await this.reply(
+        chat,
+        `Selecciona un numero entre 1 y ${ids.length}, o escribe INICIO para el menu.`,
+      );
+      return null;
+    }
+    return ids[idx];
+  }
+
+  // ── Consultar ───────────────────────────────────────────────────────────
+
+  /** Inicia la consulta: lista las actividades del Host y espera una seleccion. */
+  private async startConsult(
+    session: WhatsappSession,
+    chat: WhatsappChat,
+    host: Host,
+  ): Promise<void> {
+    const activities = await this.loadHostActivities(host);
     if (activities.length === 0) {
       return this.reply(chat, 'No tienes actividades registradas. Escribe 1 para crear una.');
     }
     const project = docToEntity<Project>(
       await this.projects.doc(activities[0].projectId).get(),
     );
-    const statusName = (id: string) =>
-      project?.statuses.find((s) => s.id === id)?.name ?? id;
-    const lines = activities.map(
-      (a, i) => `${i + 1}) ${a.name} — ${statusName(a.statusId)}`,
-    );
+    await this.updateSession(session.id, {
+      state: WhatsappSessionState.CONSULTING_ACTIVITIES,
+      tempData: { activityIds: activities.map((a) => a.id) },
+    });
     return this.reply(
       chat,
-      ['Tus actividades:', ...lines, '', 'Escribe INICIO para el menu.'].join('\n'),
+      [
+        'Tus actividades:',
+        this.activityListText(activities, project),
+        '',
+        'Escribe el numero de una actividad para ver su detalle, o INICIO para el menu.',
+      ].join('\n'),
+    );
+  }
+
+  /** Muestra el detalle de la actividad elegida (campos + estado). */
+  private async handleConsultSelection(
+    session: WhatsappSession,
+    chat: WhatsappChat,
+    text: string,
+  ): Promise<void> {
+    const ids = ((session.tempData?.activityIds as string[]) ?? []);
+    const activityId = await this.pickFromList(chat, ids, text);
+    if (!activityId) return;
+
+    const activity = docToEntity<Activity>(
+      await this.activities.doc(activityId).get(),
+    );
+    if (!activity) {
+      await this.resetSession(session.id);
+      return this.reply(chat, 'La actividad ya no esta disponible. ' + this.menuText());
+    }
+    const project = docToEntity<Project>(
+      await this.projects.doc(activity.projectId).get(),
+    );
+    await this.resetSession(session.id);
+    return this.reply(chat, this.activityDetailText(activity, project));
+  }
+
+  /** Construye el detalle legible de una actividad: nombre, estado y campos. */
+  private activityDetailText(
+    activity: Activity,
+    project: Project | null,
+  ): string {
+    const statusName =
+      project?.statuses.find((s) => s.id === activity.statusId)?.name ??
+      activity.statusId;
+    const lines = [`*${activity.name}*`, `Estado: ${statusName}`];
+    const fields = this.botFields(project ?? ({ customFields: [] } as unknown as Project));
+    for (const field of fields) {
+      const value = activity.customFieldValues?.[field.key];
+      if (value === undefined || value === null || value === '') continue;
+      lines.push(`${field.label}: ${this.displayValue(field, value)}`);
+    }
+    lines.push('', 'Escribe INICIO para volver al menu.');
+    return lines.join('\n');
+  }
+
+  /** Representa el valor de un campo para mostrarlo (resuelve etiquetas de LIST). */
+  private displayValue(field: ActivityCustomField, value: unknown): string {
+    if (field.type === CustomFieldType.LIST && field.options?.length) {
+      const opt = field.options.find((o) => o.value === value);
+      if (opt) return opt.label;
+    }
+    if (Array.isArray(value)) return value.join(', ');
+    return String(value);
+  }
+
+  // ── Editar ──────────────────────────────────────────────────────────────
+
+  /** Inicia la edicion: lista actividades y espera elegir cual editar. */
+  private async startEdit(
+    session: WhatsappSession,
+    chat: WhatsappChat,
+    host: Host,
+  ): Promise<void> {
+    const activities = await this.loadHostActivities(host);
+    if (activities.length === 0) {
+      return this.reply(chat, 'No tienes actividades para editar. Escribe 1 para crear una.');
+    }
+    const project = docToEntity<Project>(
+      await this.projects.doc(activities[0].projectId).get(),
+    );
+    await this.updateSession(session.id, {
+      state: WhatsappSessionState.EDITING_ACTIVITY,
+      tempData: {
+        stage: 'SELECT_ACTIVITY',
+        activityIds: activities.map((a) => a.id),
+      },
+    });
+    return this.reply(
+      chat,
+      [
+        'Que actividad quieres editar?',
+        this.activityListText(activities, project),
+        '',
+        'Escribe el numero, o INICIO para cancelar.',
+      ].join('\n'),
+    );
+  }
+
+  /** Maquina de sub-pasos de la edicion (elegir actividad -> campo -> valor). */
+  private async handleEditStep(
+    session: WhatsappSession,
+    chat: WhatsappChat,
+    host: Host,
+    text: string,
+  ): Promise<void> {
+    const temp = (session.tempData ?? {}) as {
+      stage?: string;
+      activityIds?: string[];
+      activityId?: string;
+      fieldKeys?: string[];
+      fieldKey?: string;
+    };
+
+    if (temp.stage === 'SELECT_ACTIVITY') {
+      const activityId = await this.pickFromList(chat, temp.activityIds ?? [], text);
+      if (!activityId) return;
+      const activity = docToEntity<Activity>(await this.activities.doc(activityId).get());
+      const project = activity
+        ? docToEntity<Project>(await this.projects.doc(activity.projectId).get())
+        : null;
+      if (!activity || !project) {
+        await this.resetSession(session.id);
+        return this.reply(chat, 'La actividad ya no esta disponible. ' + this.menuText());
+      }
+      const fields = this.botFields(project);
+      if (fields.length === 0) {
+        await this.resetSession(session.id);
+        return this.reply(chat, 'Esta actividad no tiene campos editables. ' + this.menuText());
+      }
+      await this.updateSession(session.id, {
+        currentActivityId: activityId,
+        tempData: {
+          stage: 'SELECT_FIELD',
+          activityId,
+          fieldKeys: fields.map((f) => f.key),
+        },
+      });
+      const list = fields.map((f, i) => `${i + 1}) ${f.label}`).join('\n');
+      return this.reply(
+        chat,
+        ['Que campo quieres editar?', list, '', 'Escribe el numero, o INICIO para cancelar.'].join('\n'),
+      );
+    }
+
+    if (temp.stage === 'SELECT_FIELD') {
+      const fieldKey = await this.pickFromList(chat, temp.fieldKeys ?? [], text);
+      if (!fieldKey) return;
+      const activity = docToEntity<Activity>(
+        await this.activities.doc(temp.activityId ?? '').get(),
+      );
+      const project = activity
+        ? docToEntity<Project>(await this.projects.doc(activity.projectId).get())
+        : null;
+      const field = this.botFields(project ?? ({ customFields: [] } as unknown as Project)).find(
+        (f) => f.key === fieldKey,
+      );
+      if (!field) {
+        await this.resetSession(session.id);
+        return this.reply(chat, 'El campo ya no esta disponible. ' + this.menuText());
+      }
+      await this.updateSession(session.id, {
+        tempData: { ...temp, stage: 'ENTER_VALUE', fieldKey },
+      });
+      return this.reply(chat, this.fieldPrompt(field));
+    }
+
+    if (temp.stage === 'ENTER_VALUE') {
+      const activity = docToEntity<Activity>(
+        await this.activities.doc(temp.activityId ?? '').get(),
+      );
+      const project = activity
+        ? docToEntity<Project>(await this.projects.doc(activity.projectId).get())
+        : null;
+      const field = this.botFields(project ?? ({ customFields: [] } as unknown as Project)).find(
+        (f) => f.key === temp.fieldKey,
+      );
+      if (!activity || !field) {
+        await this.resetSession(session.id);
+        return this.reply(chat, 'La actividad ya no esta disponible. ' + this.menuText());
+      }
+      const parsed = this.parseFieldValue(field, text);
+      if (parsed.error) return this.reply(chat, parsed.error);
+
+      const customFieldValues = { ...(activity.customFieldValues ?? {}) };
+      if (parsed.value === undefined) {
+        delete customFieldValues[field.key];
+      } else {
+        customFieldValues[field.key] = parsed.value;
+      }
+      await this.activities.doc(activity.id).update({
+        customFieldValues,
+        updatedAt: new Date().toISOString(),
+      });
+      await this.resetSession(session.id);
+      return this.reply(
+        chat,
+        `Listo. *${field.label}* actualizado en *${activity.name}*.\nEscribe INICIO para el menu.`,
+      );
+    }
+
+    // Etapa desconocida: reinicia por seguridad.
+    await this.resetSession(session.id);
+    return this.reply(chat, this.menuText());
+  }
+
+  // ── Archivar ──────────────────────────────────────────────────────────────
+
+  /** Inicia el archivado: lista actividades y espera elegir cual archivar. */
+  private async startArchive(
+    session: WhatsappSession,
+    chat: WhatsappChat,
+    host: Host,
+  ): Promise<void> {
+    const activities = await this.loadHostActivities(host);
+    if (activities.length === 0) {
+      return this.reply(chat, 'No tienes actividades para archivar.');
+    }
+    const project = docToEntity<Project>(
+      await this.projects.doc(activities[0].projectId).get(),
+    );
+    await this.updateSession(session.id, {
+      state: WhatsappSessionState.ARCHIVING_ACTIVITY,
+      tempData: { activityIds: activities.map((a) => a.id) },
+    });
+    return this.reply(
+      chat,
+      [
+        'Que actividad quieres archivar?',
+        this.activityListText(activities, project),
+        '',
+        'Escribe el numero, o INICIO para cancelar.',
+      ].join('\n'),
+    );
+  }
+
+  /** Archiva la actividad elegida (borrado logico: isArchived = true). */
+  private async handleArchiveSelection(
+    session: WhatsappSession,
+    chat: WhatsappChat,
+    text: string,
+  ): Promise<void> {
+    const ids = ((session.tempData?.activityIds as string[]) ?? []);
+    const activityId = await this.pickFromList(chat, ids, text);
+    if (!activityId) return;
+
+    const activity = docToEntity<Activity>(
+      await this.activities.doc(activityId).get(),
+    );
+    if (!activity) {
+      await this.resetSession(session.id);
+      return this.reply(chat, 'La actividad ya no esta disponible. ' + this.menuText());
+    }
+    await this.activities.doc(activityId).update({
+      isArchived: true,
+      updatedAt: new Date().toISOString(),
+    });
+    await this.resetSession(session.id);
+    return this.reply(
+      chat,
+      `Actividad *${activity.name}* archivada.\nEscribe INICIO para el menu.`,
     );
   }
 
@@ -417,6 +880,17 @@ export class WhatsappService {
   }
 
   private fieldPrompt(field: ActivityCustomField): string {
+    // Campos de adjunto: se pide enviar el/los archivo(s) y cerrar con "listo".
+    if (this.isAttachmentField(field)) {
+      const kind =
+        field.type === CustomFieldType.IMAGE
+          ? 'la(s) foto(s)'
+          : field.type === CustomFieldType.VIDEO
+            ? 'el/los video(s)'
+            : 'el/los archivo(s)';
+      const optional = field.required ? '' : ' (o escribe *listo* para omitir)';
+      return `Envia ${kind} para *${field.label}* y escribe *listo* al terminar${optional}.`;
+    }
     let prompt = `Indica *${field.label}*`;
     if (field.type === CustomFieldType.LIST && field.options?.length) {
       const opts = field.options
@@ -628,6 +1102,21 @@ export class WhatsappService {
     };
     await ref.set(data);
     return { id: ref.id, ...data };
+  }
+
+  /**
+   * Indica si una organizacion tiene habilitada una funcionalidad
+   * (gate controlado por el SUPER_ADMIN en `enabledFeatures`). Ausencia del flag
+   * se interpreta como habilitado, para no romper organizaciones preexistentes.
+   */
+  private async featureEnabled(
+    organizationId: string,
+    feature: keyof Organization['enabledFeatures'],
+  ): Promise<boolean> {
+    const org = docToEntity<Organization>(
+      await this.organizations.doc(organizationId).get(),
+    );
+    return org?.enabledFeatures?.[feature] !== false;
   }
 
   private async setSessionBotEnabled(

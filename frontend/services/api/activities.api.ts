@@ -70,4 +70,19 @@ export const activitiesApi = {
       `/projects/${projectId}/uploads`,
       file,
     ),
+  /** Importa actividades desde filas de Excel ya parseadas. */
+  importActivities: (
+    projectId: string,
+    rows: Array<Record<string, string>>,
+  ) =>
+    apiClient.post<{
+      created: Array<{ row: number; name: string; id: string }>;
+      failed: Array<{ row: number; reason: string }>;
+    }>(`/projects/${projectId}/activities/import`, { rows }),
+  /** Exporta las actividades visibles del proyecto como matriz tabular. */
+  exportActivities: (projectId: string, filters?: ActivityFilters) =>
+    apiClient.get<{
+      columns: string[];
+      rows: Array<Record<string, string>>;
+    }>(`/projects/${projectId}/activities/export${toQuery(filters)}`),
 };

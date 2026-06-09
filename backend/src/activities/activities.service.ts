@@ -15,6 +15,7 @@ import {
   FirestoreCollections,
   GestorAccessRule,
   isFieldVisibleForActivity,
+  Organization,
   Project,
   ProjectStatus,
   RuleEvent,
@@ -207,6 +208,175 @@ export class ActivitiesService {
     );
 
     return created;
+  }
+
+  // ----------------------------------------------------------------------
+  // Importacion / exportacion masiva (Excel)
+  // ----------------------------------------------------------------------
+
+  /**
+   * Importa actividades desde filas de Excel ya parseadas (`columna -> valor`).
+   * Cada fila se mapea a una actividad: la columna "Nombre" es el nombre y el
+   * resto de columnas se asocian a campos personalizados por su label. Cada fila
+   * se crea via {@link create}, de modo que se aplican validaciones, historial,
+   * notificaciones y triggers. Devuelve el resultado fila a fila (no aborta todo
+   * si una fila falla).
+   */
+  async importActivities(
+    projectId: string,
+    rows: Array<Record<string, string>>,
+    user: AuthenticatedUser,
+  ): Promise<{
+    created: Array<{ row: number; name: string; id: string }>;
+    failed: Array<{ row: number; reason: string }>;
+  }> {
+    const project = await this.projects.loadAccessible(projectId, user);
+    const fields = this.importableFields(project);
+    const created: Array<{ row: number; name: string; id: string }> = [];
+    const failed: Array<{ row: number; reason: string }> = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      // Fila 1 = encabezados en el Excel; los datos empiezan en la fila 2.
+      const rowNumber = i + 2;
+      try {
+        const dto = this.rowToCreateDto(row, project, fields);
+        const activity = await this.create(projectId, dto, user);
+        created.push({ row: rowNumber, name: activity.name, id: activity.id });
+      } catch (err) {
+        failed.push({ row: rowNumber, reason: (err as Error).message });
+      }
+    }
+    return { created, failed };
+  }
+
+  /**
+   * Exporta las actividades visibles del proyecto a una matriz tabular lista para
+   * convertir a Excel en el frontend: `columns` (encabezados) y `rows` (objetos
+   * `columna -> valor`). Respeta el filtrado de visibilidad de {@link listByProject}.
+   */
+  async exportActivities(
+    projectId: string,
+    query: QueryActivitiesDto,
+    user: AuthenticatedUser,
+  ): Promise<{ columns: string[]; rows: Array<Record<string, string>> }> {
+    const project = await this.projects.loadAccessible(projectId, user);
+    const activities = await this.listByProject(projectId, query, user);
+    const fields = this.importableFields(project);
+
+    const columns = [
+      'Nombre',
+      'Estado',
+      'Fecha Programada',
+      'Creado',
+      ...fields.map((f) => f.label),
+    ];
+    const statusName = (id: string) =>
+      project.statuses.find((s) => s.id === id)?.name ?? id;
+
+    const rows = activities.map((a) => {
+      const out: Record<string, string> = {
+        Nombre: a.name,
+        Estado: statusName(a.statusId),
+        'Fecha Programada': a.scheduledDate ?? '',
+        Creado: a.createdAt,
+      };
+      for (const field of fields) {
+        out[field.label] = this.fieldToCell(field, a.customFieldValues?.[field.key]);
+      }
+      return out;
+    });
+
+    return { columns, rows };
+  }
+
+  /** Campos personalizados activos importables/exportables (excluye adjuntos). */
+  private importableFields(project: Project): ActivityCustomField[] {
+    const attachmentTypes: CustomFieldType[] = [
+      CustomFieldType.FILE,
+      CustomFieldType.IMAGE,
+      CustomFieldType.VIDEO,
+    ];
+    return (project.customFields ?? [])
+      .filter((f) => f.isActive && !f.isArchived && !attachmentTypes.includes(f.type))
+      .sort((a, b) => a.order - b.order);
+  }
+
+  /** Convierte una fila de Excel en el DTO de creacion (mapea columnas a campos). */
+  private rowToCreateDto(
+    row: Record<string, string>,
+    project: Project,
+    fields: ActivityCustomField[],
+  ): CreateActivityDto {
+    const name = String(row['Nombre'] ?? '').trim();
+    if (!name) {
+      throw new BadRequestException('La columna "Nombre" es obligatoria.');
+    }
+
+    // Estado opcional por nombre; si no coincide, se usa el estado por defecto.
+    const statusRaw = String(row['Estado'] ?? '').trim();
+    const status = statusRaw
+      ? project.statuses.find(
+          (s) => s.name.toLowerCase() === statusRaw.toLowerCase() && !s.isArchived,
+        )
+      : undefined;
+
+    const customFieldValues: Record<string, unknown> = {};
+    for (const field of fields) {
+      const raw = String(row[field.label] ?? '').trim();
+      if (!raw) continue; // los obligatorios los valida `create`.
+      customFieldValues[field.key] = this.cellToFieldValue(field, raw);
+    }
+
+    const scheduledDate = String(row['Fecha Programada'] ?? '').trim() || undefined;
+
+    return {
+      name,
+      statusId: status?.id,
+      scheduledDate,
+      customFieldValues,
+    };
+  }
+
+  /** Parsea el texto de una celda al valor tipado del campo. Lanza si es invalido. */
+  private cellToFieldValue(field: ActivityCustomField, raw: string): unknown {
+    switch (field.type) {
+      case CustomFieldType.NUMBER: {
+        const n = Number(raw);
+        if (Number.isNaN(n)) {
+          throw new BadRequestException(`"${field.label}" debe ser numerico (valor: "${raw}").`);
+        }
+        return n;
+      }
+      case CustomFieldType.LIST: {
+        const options = field.options ?? [];
+        const match = options.find(
+          (o) =>
+            o.label.toLowerCase() === raw.toLowerCase() ||
+            o.value.toLowerCase() === raw.toLowerCase(),
+        );
+        if (!match) {
+          const allowed = options.map((o) => o.label).join(', ');
+          throw new BadRequestException(
+            `"${field.label}" debe ser una de: ${allowed} (valor: "${raw}").`,
+          );
+        }
+        return match.value;
+      }
+      default:
+        return raw;
+    }
+  }
+
+  /** Representa el valor de un campo como texto de celda (resuelve LIST). */
+  private fieldToCell(field: ActivityCustomField, value: unknown): string {
+    if (value === undefined || value === null) return '';
+    if (field.type === CustomFieldType.LIST && field.options?.length) {
+      const opt = field.options.find((o) => o.value === value);
+      if (opt) return opt.label;
+    }
+    if (Array.isArray(value)) return value.join(', ');
+    return String(value);
   }
 
   // ----------------------------------------------------------------------
@@ -416,6 +586,11 @@ export class ActivitiesService {
       throw new BadRequestException('No se recibio ningun archivo.');
     }
     const project = await this.projects.loadAccessible(projectId, user);
+    await this.assertFeatureEnabled(
+      project.organizationId,
+      'fileUploadsEnabled',
+      'La subida de archivos no esta habilitada para esta organizacion.',
+    );
 
     const { url, path } = await this.storage.uploadBuffer({
       organizationId: project.organizationId,
@@ -438,6 +613,26 @@ export class ActivitiesService {
   // ----------------------------------------------------------------------
   // Helpers internos
   // ----------------------------------------------------------------------
+
+  /**
+   * Lanza ForbiddenException si la organizacion no tiene habilitada una
+   * funcionalidad (gate controlado por el SUPER_ADMIN en `enabledFeatures`).
+   */
+  private async assertFeatureEnabled(
+    organizationId: string,
+    feature: keyof Organization['enabledFeatures'],
+    message: string,
+  ): Promise<void> {
+    const org = docToEntity<Organization>(
+      await this.firebase.firestore
+        .collection(FirestoreCollections.ORGANIZATIONS)
+        .doc(organizationId)
+        .get(),
+    );
+    if (org && org.enabledFeatures?.[feature] === false) {
+      throw new ForbiddenException(message);
+    }
+  }
 
   private effectiveRole(
     user: AuthenticatedUser,

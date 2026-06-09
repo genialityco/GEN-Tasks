@@ -24,6 +24,7 @@ import {
   UpdateActivityDto,
 } from './dto/update-activity.dto';
 import { QueryActivitiesDto } from './dto/query-activities.dto';
+import { ImportActivitiesDto } from './dto/import-activities.dto';
 
 /**
  * Actividades. El tenant scoping y las restricciones de gestor se aplican en
@@ -50,6 +51,24 @@ export class ActivitiesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.activities.create(projectId, dto, user);
+  }
+
+  @Post('projects/:projectId/activities/import')
+  importActivities(
+    @Param('projectId') projectId: string,
+    @Body() dto: ImportActivitiesDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.activities.importActivities(projectId, dto.rows, user);
+  }
+
+  @Get('projects/:projectId/activities/export')
+  exportActivities(
+    @Param('projectId') projectId: string,
+    @Query() query: QueryActivitiesDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.activities.exportActivities(projectId, query, user);
   }
 
   @Post('projects/:projectId/uploads')
