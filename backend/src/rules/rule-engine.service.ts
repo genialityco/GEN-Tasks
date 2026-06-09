@@ -271,11 +271,16 @@ export class RuleEngineService {
       case RuleActionType.SEND_WHATSAPP:
       case RuleActionType.REQUEST_HOST_INFORMATION: {
         const message = payload.message as string | undefined;
-        if (!message) return activity;
+        if (!message) {
+          this.logger.debug(
+            `Accion WhatsApp de la regla "${rule.name}" sin mensaje; omitida.`,
+          );
+          return activity;
+        }
         const recipients = await this.resolveRecipients(payload, activity);
         if (recipients.length === 0) {
           this.logger.debug(
-            'Accion WhatsApp sin destinatario con telefono; omitida.',
+            `Accion WhatsApp de la regla "${rule.name}" omitida: ningun destinatario con telefono valido.`,
           );
           return activity;
         }
@@ -314,33 +319,66 @@ export class RuleEngineService {
       (payload.recipientType as WhatsappRecipientType | undefined) ??
       WhatsappRecipientType.HOST;
 
+    this.logger.debug(`Resolviendo destinatarios WhatsApp (tipo=${type}).`);
+
     const out: { phone: string; persistChat: boolean }[] = [];
-    const add = (phone: string | null | undefined, persistChat: boolean) => {
+    const add = (
+      phone: string | null | undefined,
+      persistChat: boolean,
+      who: string,
+    ) => {
       const p = normalizePhone(phone);
-      if (p) out.push({ phone: p, persistChat });
+      if (p) {
+        out.push({ phone: p, persistChat });
+      } else {
+        this.logger.debug(
+          `  ${who}: telefono ausente o invalido (valor=${JSON.stringify(phone)}); descartado.`,
+        );
+      }
     };
 
     switch (type) {
-      case WhatsappRecipientType.HOST:
-        add(await this.resolveActivityPhone(activity), true);
+      case WhatsappRecipientType.HOST: {
+        if (!activity.hostId) {
+          this.logger.debug('  HOST: la actividad no tiene hostId.');
+          break;
+        }
+        add(await this.resolveActivityPhone(activity), true, `host ${activity.hostId}`);
         break;
+      }
 
       case WhatsappRecipientType.PHONE:
-        add(payload.recipientPhone as string | undefined, true);
+        add(payload.recipientPhone as string | undefined, true, 'telefono fijo del payload');
         break;
 
       case WhatsappRecipientType.MEMBER: {
-        const user = await this.loadUser(
-          payload.recipientUserId as string | undefined,
-        );
-        add(user?.phone ?? null, false);
+        const userId = payload.recipientUserId as string | undefined;
+        if (!userId) {
+          this.logger.debug('  MEMBER: la regla no tiene recipientUserId configurado.');
+          break;
+        }
+        const user = await this.loadUser(userId);
+        if (!user) {
+          this.logger.debug(`  MEMBER: usuario ${userId} no encontrado.`);
+          break;
+        }
+        add(user.phone ?? null, false, `miembro ${userId}`);
         break;
       }
 
       case WhatsappRecipientType.RESPONSIBLES: {
-        for (const userId of activity.responsibleIds ?? []) {
+        const ids = activity.responsibleIds ?? [];
+        if (ids.length === 0) {
+          this.logger.debug('  RESPONSIBLES: la actividad no tiene responsibleIds.');
+          break;
+        }
+        for (const userId of ids) {
           const user = await this.loadUser(userId);
-          add(user?.phone ?? null, false);
+          if (!user) {
+            this.logger.debug(`  RESPONSIBLES: usuario ${userId} no encontrado.`);
+            continue;
+          }
+          add(user.phone ?? null, false, `responsable ${userId}`);
         }
         break;
       }
