@@ -118,11 +118,14 @@ export class NotificationsService {
           link: this.activityLink(ctx.activity),
         };
         const body = interpolate(template, vars);
+        // Asunto del correo: usa el de la plantilla (interpolado) si se definio;
+        // si no, un asunto por defecto.
+        const subjectTemplate = templateDoc?.subject?.trim();
+        const subject = subjectTemplate
+          ? interpolate(subjectTemplate, vars)
+          : `Nueva asignación: ${ctx.activity.name}`;
 
-        await this.deliver(channel, user, {
-          subject: `Nueva asignación: ${ctx.activity.name}`,
-          body,
-        });
+        await this.deliver(channel, user, { subject, body });
       } catch (err) {
         this.logger.error(
           `No se pudo notificar al responsable ${userId}: ${(err as Error).message}`,

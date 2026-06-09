@@ -12,6 +12,7 @@ export const templatesApi = {
       key: string;
       name: string;
       body: string;
+      subject?: string;
       channel?: NotificationChannel;
     },
   ) =>
@@ -24,6 +25,7 @@ export const templatesApi = {
     body: {
       name?: string;
       body?: string;
+      subject?: string;
       channel?: NotificationChannel;
       isActive?: boolean;
     },

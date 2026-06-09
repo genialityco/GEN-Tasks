@@ -76,6 +76,12 @@ export interface MessageTemplate {
   /** Cuerpo con placeholders, ej: "Tu actividad {{name}} cambio a {{status}}". */
   body: string;
   /**
+   * Asunto del correo (solo aplica a los canales EMAIL/BOTH). Admite los mismos
+   * placeholders `{{...}}` que el cuerpo. Si esta vacio, se usa un asunto por
+   * defecto. No tiene efecto en el canal WHATSAPP.
+   */
+  subject?: string;
+  /**
    * Medio de entrega de la notificacion. Ausente = WHATSAPP (por defecto), para
    * conservar el comportamiento de las plantillas creadas antes de este campo.
    */

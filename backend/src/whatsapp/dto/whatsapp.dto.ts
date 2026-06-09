@@ -28,12 +28,14 @@ export class CreateTemplateDto {
   @IsString() @MinLength(1) key!: string;
   @IsString() @MinLength(1) name!: string;
   @IsString() @MinLength(1) body!: string;
+  @IsOptional() @IsString() subject?: string;
   @IsOptional() @IsEnum(NotificationChannel) channel?: NotificationChannel;
 }
 
 export class UpdateTemplateDto {
   @IsOptional() @IsString() @MinLength(1) name?: string;
   @IsOptional() @IsString() @MinLength(1) body?: string;
+  @IsOptional() @IsString() subject?: string;
   @IsOptional() @IsEnum(NotificationChannel) channel?: NotificationChannel;
   @IsOptional() @IsBoolean() isActive?: boolean;
 }

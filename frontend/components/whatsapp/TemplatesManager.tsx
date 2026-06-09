@@ -1,7 +1,21 @@
 'use client';
 
-import { useState } from 'react';
-import { NotificationChannel } from '@gen-task/shared';
+import { useRef, useState } from 'react';
+import {
+  Alert,
+  Badge,
+  Button,
+  Group,
+  Paper,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  Textarea,
+  Tooltip,
+} from '@mantine/core';
+import { IconTrash } from '@tabler/icons-react';
+import { NotificationChannel, type MessageTemplate } from '@gen-task/shared';
 import { templatesApi } from '../../services/api/templates.api';
 import { useAsync } from '../../hooks/useAsync';
 
@@ -12,10 +26,143 @@ const CHANNEL_LABELS: Record<NotificationChannel, string> = {
   [NotificationChannel.BOTH]: 'WhatsApp y correo',
 };
 
+const CHANNEL_OPTIONS = Object.values(NotificationChannel).map((c) => ({
+  value: c,
+  label: CHANNEL_LABELS[c],
+}));
+
 /**
- * Gestion de plantillas de mensajes del bot (Fase 8). Permite crear, editar el
- * cuerpo y eliminar plantillas reutilizables (cambio de estado, solicitud de
- * info, confirmacion, error, etc.) usando la `key` como identificador logico.
+ * Variables disponibles para las plantillas de notificacion (las que el backend
+ * resuelve al notificar). Se insertan como `{{clave}}`. Es el mismo conjunto para
+ * correo y WhatsApp, de modo que ambas plantillas se arman igual.
+ */
+const TEMPLATE_VARS: { key: string; label: string }[] = [
+  { key: 'responsibleName', label: 'Responsable' },
+  { key: 'activityName', label: 'Actividad' },
+  { key: 'statusName', label: 'Estado' },
+  { key: 'projectName', label: 'Proyecto' },
+  { key: 'organizationName', label: 'Organización' },
+  { key: 'link', label: 'Enlace a la actividad' },
+];
+
+/** True si el canal entrega por correo (y por tanto usa asunto). */
+function usesEmail(channel: NotificationChannel): boolean {
+  return channel === NotificationChannel.EMAIL || channel === NotificationChannel.BOTH;
+}
+
+type EditableField = HTMLTextAreaElement | HTMLInputElement;
+
+/**
+ * Chips de variables: al hacer clic insertan `{{clave}}` en la posicion del
+ * cursor del ultimo campo (asunto o cuerpo) enfocado. Mismo patron que Motorola.
+ */
+function VariableChips({ onInsert }: { onInsert: (text: string) => void }) {
+  return (
+    <Group gap={4}>
+      <Text size="xs" fw={700} c="blue.7" w="100%">
+        Variables — haz clic para insertarla donde está el cursor:
+      </Text>
+      {TEMPLATE_VARS.map(({ key, label }) => (
+        <Tooltip key={key} label={`{{${key}}}`} withArrow>
+          <Button
+            size="compact-xs"
+            variant="light"
+            color="blue"
+            onMouseDown={(e) => e.preventDefault()} // no robar el foco del campo
+            onClick={() => onInsert(`{{${key}}}`)}
+          >
+            {label}
+          </Button>
+        </Tooltip>
+      ))}
+    </Group>
+  );
+}
+
+/**
+ * Editor compartido de los campos de una plantilla (canal, asunto, cuerpo) con
+ * chips de variables que insertan en el cursor. Lo usan tanto el formulario de
+ * creacion como cada plantilla existente, para que se armen exactamente igual.
+ */
+function TemplateFields({
+  channel,
+  subject,
+  body,
+  onChannel,
+  onSubject,
+  onBody,
+}: {
+  channel: NotificationChannel;
+  subject: string;
+  body: string;
+  onChannel: (c: NotificationChannel) => void;
+  onSubject: (s: string) => void;
+  onBody: (b: string) => void;
+}) {
+  // Ultimo campo enfocado, para insertar la variable en el cursor.
+  const active = useRef<{ el: EditableField; field: 'subject' | 'body' } | null>(null);
+
+  function insertVar(text: string) {
+    const cur = active.current;
+    if (!cur) {
+      // Sin campo activo: agrega al cuerpo por defecto.
+      onBody(body + text);
+      return;
+    }
+    const el = cur.el;
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const next = el.value.slice(0, start) + text + el.value.slice(end);
+    if (cur.field === 'subject') onSubject(next);
+    else onBody(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + text.length, start + text.length);
+    });
+  }
+
+  return (
+    <Stack gap="sm">
+      <Select
+        label="Medio de envío"
+        data={CHANNEL_OPTIONS}
+        value={channel}
+        onChange={(v) => v && onChannel(v as NotificationChannel)}
+        allowDeselect={false}
+        maw={260}
+      />
+
+      <Paper p="sm" radius="sm" withBorder bg="blue.0">
+        <VariableChips onInsert={insertVar} />
+      </Paper>
+
+      {usesEmail(channel) && (
+        <TextInput
+          label="Asunto del correo"
+          description="Solo aplica al canal de correo. Admite variables."
+          value={subject}
+          onFocus={(e) => (active.current = { el: e.currentTarget, field: 'subject' })}
+          onChange={(e) => onSubject(e.currentTarget.value)}
+        />
+      )}
+
+      <Textarea
+        label="Cuerpo del mensaje"
+        autosize
+        minRows={3}
+        value={body}
+        onFocus={(e) => (active.current = { el: e.currentTarget, field: 'body' })}
+        onChange={(e) => onBody(e.currentTarget.value)}
+      />
+    </Stack>
+  );
+}
+
+/**
+ * Gestion de plantillas de notificacion (correo + WhatsApp). Las plantillas de
+ * ambos canales se arman igual (mismo editor y variables); el canal define si se
+ * envia por WhatsApp, correo o ambos. La `key` es el identificador logico (ej:
+ * RESPONSIBLE_ASSIGNED, que personaliza el aviso al asignar un responsable).
  */
 export function TemplatesManager({ organizationId }: { organizationId: string }) {
   const { data: templates, loading, reload } = useAsync(
@@ -23,17 +170,133 @@ export function TemplatesManager({ organizationId }: { organizationId: string })
     [organizationId],
   );
 
+  return (
+    <Stack gap="lg" maw={760}>
+      <Paper p="md" radius="md" withBorder>
+        <Stack gap={4}>
+          <Text fw={700}>Notificaciones automáticas</Text>
+          <Text size="sm" c="dimmed">
+            Para personalizar el mensaje que reciben los responsables al ser
+            asignados a una actividad, crea una plantilla con la clave{' '}
+            <Badge variant="light" size="sm">RESPONSIBLE_ASSIGNED</Badge>. Si no
+            existe, se usa un texto por defecto. Elige el medio de envío
+            (WhatsApp, correo o ambos); para correo puedes definir un asunto.
+          </Text>
+        </Stack>
+      </Paper>
+
+      <Stack gap="sm">
+        <Text fw={700}>Plantillas existentes</Text>
+        {loading && <Text>Cargando...</Text>}
+        {templates?.map((t) => (
+          <TemplateCard key={t.id} template={t} onChanged={reload} />
+        ))}
+        {templates && templates.length === 0 && (
+          <Text c="dimmed">No hay plantillas configuradas.</Text>
+        )}
+      </Stack>
+
+      <NewTemplateForm organizationId={organizationId} onCreated={reload} />
+    </Stack>
+  );
+}
+
+/** Plantilla existente: edicion del canal/asunto/cuerpo con chips de variables. */
+function TemplateCard({
+  template,
+  onChanged,
+}: {
+  template: MessageTemplate;
+  onChanged: () => void;
+}) {
+  const [channel, setChannel] = useState<NotificationChannel>(
+    template.channel ?? NotificationChannel.WHATSAPP,
+  );
+  const [subject, setSubject] = useState(template.subject ?? '');
+  const [body, setBody] = useState(template.body);
+  const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  const dirty =
+    body !== template.body ||
+    subject !== (template.subject ?? '') ||
+    channel !== (template.channel ?? NotificationChannel.WHATSAPP);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await templatesApi.update(template.id, { body, subject, channel });
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove() {
+    if (!confirm('¿Eliminar esta plantilla?')) return;
+    setRemoving(true);
+    try {
+      await templatesApi.remove(template.id);
+      onChanged();
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  return (
+    <Paper p="md" radius="md" withBorder>
+      <Stack gap="sm">
+        <Group justify="space-between">
+          <Text>
+            <strong>{template.name}</strong>{' '}
+            <Badge variant="light" size="sm" color="gray">{template.key}</Badge>
+          </Text>
+          <Button
+            size="compact-sm"
+            color="red"
+            variant="light"
+            leftSection={<IconTrash size={14} />}
+            loading={removing}
+            onClick={remove}
+          >
+            Eliminar
+          </Button>
+        </Group>
+        <TemplateFields
+          channel={channel}
+          subject={subject}
+          body={body}
+          onChannel={setChannel}
+          onSubject={setSubject}
+          onBody={setBody}
+        />
+        {dirty && (
+          <Button onClick={save} loading={saving} style={{ alignSelf: 'flex-start' }}>
+            Guardar
+          </Button>
+        )}
+      </Stack>
+    </Paper>
+  );
+}
+
+/** Formulario de nueva plantilla, armado con el mismo editor que las existentes. */
+function NewTemplateForm({
+  organizationId,
+  onCreated,
+}: {
+  organizationId: string;
+  onCreated: () => void;
+}) {
   const [key, setKey] = useState('');
   const [name, setName] = useState('');
+  const [channel, setChannel] = useState<NotificationChannel>(NotificationChannel.WHATSAPP);
+  const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
-  const [channel, setChannel] = useState<NotificationChannel>(
-    NotificationChannel.WHATSAPP,
-  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function create(e: React.FormEvent) {
-    e.preventDefault();
+  async function create() {
     setBusy(true);
     setError(null);
     try {
@@ -41,13 +304,15 @@ export function TemplatesManager({ organizationId }: { organizationId: string })
         key: key.trim(),
         name: name.trim(),
         body: body.trim(),
+        subject: usesEmail(channel) ? subject.trim() : undefined,
         channel,
       });
       setKey('');
       setName('');
+      setSubject('');
       setBody('');
       setChannel(NotificationChannel.WHATSAPP);
-      reload();
+      onCreated();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -55,179 +320,44 @@ export function TemplatesManager({ organizationId }: { organizationId: string })
     }
   }
 
-  async function remove(id: string) {
-    if (!confirm('Eliminar esta plantilla?')) return;
-    await templatesApi.remove(id);
-    reload();
-  }
+  const canSubmit = Boolean(key.trim() && name.trim() && body.trim());
 
   return (
-    <div style={{ display: 'grid', gap: 16, maxWidth: 700 }}>
-      <div className="gt-card" style={{ display: 'grid', gap: 6 }}>
-        <strong>Notificaciones automáticas</strong>
-        <span className="gt-muted">
-          Para personalizar el mensaje que reciben los responsables al ser
-          asignados a una actividad, crea una plantilla con la clave{' '}
-          <code>RESPONSIBLE_ASSIGNED</code>. Si no existe, se usa un texto por
-          defecto. Puedes elegir el <strong>medio de envío</strong> (WhatsApp,
-          correo o ambos); si no se define, se envía por WhatsApp. Placeholders
-          disponibles:
-        </span>
-        <span className="gt-muted" style={{ fontSize: 13 }}>
-          <code>{'{{responsibleName}}'}</code>{' '}
-          <code>{'{{activityName}}'}</code>{' '}
-          <code>{'{{statusName}}'}</code>{' '}
-          <code>{'{{projectName}}'}</code>{' '}
-          <code>{'{{organizationName}}'}</code>
-        </span>
-      </div>
-
-      <div className="gt-card" style={{ display: 'grid', gap: 8 }}>
-        <strong>Plantillas existentes</strong>
-        {loading && <p>Cargando...</p>}
-        {templates?.map((t) => (
-          <TemplateRow key={t.id} template={t} onChanged={reload} onRemove={() => remove(t.id)} />
-        ))}
-        {templates && templates.length === 0 && (
-          <span className="gt-muted">No hay plantillas configuradas.</span>
-        )}
-      </div>
-
-      <form onSubmit={create} className="gt-card" style={{ display: 'grid', gap: 8 }}>
-        <strong>Nueva plantilla</strong>
-        {error && <div className="gt-error">{error}</div>}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <input
-            className="gt-input"
-            style={{ flex: 1, minWidth: 140 }}
-            placeholder="Clave (ej: STATUS_CHANGED)"
+    <Paper p="md" radius="md" withBorder>
+      <Stack gap="sm">
+        <Text fw={700}>Nueva plantilla</Text>
+        {error && <Alert color="red">{error}</Alert>}
+        <Group grow>
+          <TextInput
+            label="Clave"
+            placeholder="Ej: RESPONSIBLE_ASSIGNED"
             value={key}
-            onChange={(e) => setKey(e.target.value)}
-            required
+            onChange={(e) => setKey(e.currentTarget.value)}
           />
-          <input
-            className="gt-input"
-            style={{ flex: 1, minWidth: 140 }}
-            placeholder="Nombre"
+          <TextInput
+            label="Nombre"
+            placeholder="Nombre descriptivo"
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
+            onChange={(e) => setName(e.currentTarget.value)}
           />
-        </div>
-        <textarea
-          className="gt-input"
-          rows={3}
-          placeholder="Cuerpo del mensaje. Usa {{placeholders}} para variables."
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          required
+        </Group>
+        <TemplateFields
+          channel={channel}
+          subject={subject}
+          body={body}
+          onChannel={setChannel}
+          onSubject={setSubject}
+          onBody={setBody}
         />
-        <label style={{ display: 'grid', gap: 4 }}>
-          <span className="gt-muted" style={{ fontSize: 13 }}>
-            Medio de envío
-          </span>
-          <select
-            className="gt-input"
-            value={channel}
-            onChange={(e) => setChannel(e.target.value as NotificationChannel)}
-            style={{ maxWidth: 240 }}
-          >
-            {Object.values(NotificationChannel).map((c) => (
-              <option key={c} value={c}>
-                {CHANNEL_LABELS[c]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button className="gt-btn" type="submit" disabled={busy} style={{ justifySelf: 'start' }}>
+        <Button
+          onClick={create}
+          loading={busy}
+          disabled={!canSubmit}
+          style={{ alignSelf: 'flex-start' }}
+        >
           Crear plantilla
-        </button>
-      </form>
-    </div>
-  );
-}
-
-function TemplateRow({
-  template,
-  onChanged,
-  onRemove,
-}: {
-  template: import('@gen-task/shared').MessageTemplate;
-  onChanged: () => void;
-  onRemove: () => void;
-}) {
-  const [body, setBody] = useState(template.body);
-  const currentChannel = template.channel ?? NotificationChannel.WHATSAPP;
-  const [channel, setChannel] = useState<NotificationChannel>(currentChannel);
-  const [saving, setSaving] = useState(false);
-  const dirty = body !== template.body || channel !== currentChannel;
-
-  async function save() {
-    setSaving(true);
-    try {
-      await templatesApi.update(template.id, { body, channel });
-      onChanged();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gap: 6,
-        padding: 8,
-        border: '1px solid var(--border)',
-        borderRadius: 6,
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <span>
-          <strong>{template.name}</strong>{' '}
-          <span className="gt-muted">[{template.key}]</span>
-        </span>
-        <button
-          className="gt-btn"
-          style={{ background: 'var(--danger)', padding: '2px 8px' }}
-          onClick={onRemove}
-        >
-          Eliminar
-        </button>
-      </div>
-      <textarea
-        className="gt-input"
-        rows={2}
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-      />
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span className="gt-muted" style={{ fontSize: 13 }}>
-          Medio de envío
-        </span>
-        <select
-          className="gt-input"
-          value={channel}
-          onChange={(e) => setChannel(e.target.value as NotificationChannel)}
-          style={{ maxWidth: 240 }}
-        >
-          {Object.values(NotificationChannel).map((c) => (
-            <option key={c} value={c}>
-              {CHANNEL_LABELS[c]}
-            </option>
-          ))}
-        </select>
-      </label>
-      {dirty && (
-        <button
-          className="gt-btn"
-          style={{ justifySelf: 'start', padding: '4px 10px' }}
-          onClick={save}
-          disabled={saving}
-        >
-          Guardar
-        </button>
-      )}
-    </div>
+        </Button>
+      </Stack>
+    </Paper>
   );
 }

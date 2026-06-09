@@ -52,6 +52,7 @@ export class MessageTemplatesService {
       key: string;
       name: string;
       body: string;
+      subject?: string;
       channel?: NotificationChannel;
     },
   ): Promise<MessageTemplate> {
@@ -62,6 +63,7 @@ export class MessageTemplatesService {
       key: input.key,
       name: input.name,
       body: input.body,
+      subject: input.subject,
       channel: input.channel ?? NotificationChannel.WHATSAPP,
       isActive: true,
       createdAt: now,
@@ -73,7 +75,9 @@ export class MessageTemplatesService {
 
   async update(
     templateId: string,
-    patch: Partial<Pick<MessageTemplate, 'name' | 'body' | 'channel' | 'isActive'>>,
+    patch: Partial<
+      Pick<MessageTemplate, 'name' | 'body' | 'subject' | 'channel' | 'isActive'>
+    >,
   ): Promise<MessageTemplate> {
     const ref = this.collection.doc(templateId);
     if (!(await ref.get()).exists) {
