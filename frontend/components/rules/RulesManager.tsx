@@ -20,6 +20,7 @@ import {
   ConditionOperator,
   CustomFieldType,
   LogicalOperator,
+  NotificationChannel,
   RuleActionType,
   RuleEvent,
   UserRole,
@@ -85,6 +86,13 @@ const RECIPIENT_LABELS: Record<WhatsappRecipientType, string> = {
   PHONE: 'Teléfono manual',
 };
 
+/** Etiquetas de los canales por los que se puede notificar al responsable. */
+const NOTIFICATION_CHANNEL_LABELS: Record<NotificationChannel, string> = {
+  WHATSAPP: 'WhatsApp',
+  EMAIL: 'Correo',
+  BOTH: 'Ambos',
+};
+
 /** Borrador de un campo a crear por la accion CREATE_CUSTOM_FIELD. */
 interface FieldDraft {
   label: string;
@@ -113,6 +121,8 @@ interface ActionDraft {
   recipientType: WhatsappRecipientType;
   /** Telefono fijo cuando el destinatario es PHONE. */
   recipientPhone: string;
+  /** Canal por el que se notifica al responsable (ASSIGN_RESPONSIBLE). */
+  notificationChannel: NotificationChannel;
   /** Campos a crear (CREATE_CUSTOM_FIELD). */
   cfDrafts: FieldDraft[];
 }
@@ -125,6 +135,7 @@ function emptyActionDraft(): ActionDraft {
     responsibleId: '',
     recipientType: WhatsappRecipientType.HOST,
     recipientPhone: '',
+    notificationChannel: NotificationChannel.WHATSAPP,
     cfDrafts: [emptyFieldDraft()],
   };
 }
@@ -154,6 +165,8 @@ function buildActionPayload(a: ActionDraft): {
     payload.responsibleId = a.responsibleId;
     // Mensaje que se notificara al responsable asignado.
     payload.message = a.message;
+    // Canal de notificacion elegido en la regla (WhatsApp / Correo / Ambos).
+    payload.notificationChannel = a.notificationChannel;
   }
   if (a.type === RuleActionType.CREATE_CUSTOM_FIELD) {
     payload.fields = a.cfDrafts
@@ -493,18 +506,32 @@ export function RulesManager({
                   />
                 )}
                 {act.type === RuleActionType.ASSIGN_RESPONSIBLE && (
-                  <Select
-                    label="Usuario a notificar"
-                    placeholder="Selecciona..."
-                    data={(members ?? []).map((m) => ({
-                      value: m.userId,
-                      label: `${m.name} · ${m.role === UserRole.ADMIN ? 'Admin' : 'Gestor'}`,
-                    }))}
-                    value={act.responsibleId || null}
-                    onChange={(v) => updateAction(ai, { responsibleId: v ?? '' })}
-                    searchable
-                    w={260}
-                  />
+                  <>
+                    <Select
+                      label="Usuario a notificar"
+                      placeholder="Selecciona..."
+                      data={(members ?? []).map((m) => ({
+                        value: m.userId,
+                        label: `${m.name} · ${m.role === UserRole.ADMIN ? 'Admin' : 'Gestor'}`,
+                      }))}
+                      value={act.responsibleId || null}
+                      onChange={(v) => updateAction(ai, { responsibleId: v ?? '' })}
+                      searchable
+                      w={260}
+                    />
+                    <Select
+                      label="Notificar por"
+                      data={(
+                        Object.keys(NOTIFICATION_CHANNEL_LABELS) as NotificationChannel[]
+                      ).map((c) => ({ value: c, label: NOTIFICATION_CHANNEL_LABELS[c] }))}
+                      value={act.notificationChannel}
+                      onChange={(v) =>
+                        v && updateAction(ai, { notificationChannel: v as NotificationChannel })
+                      }
+                      allowDeselect={false}
+                      w={160}
+                    />
+                  </>
                 )}
                 {WHATSAPP_RECIPIENT_ACTIONS.includes(act.type) && (
                   <Select

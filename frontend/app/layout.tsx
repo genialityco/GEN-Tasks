@@ -9,6 +9,7 @@ import {
   type MantineColorsTuple,
 } from '@mantine/core';
 import { AuthProvider } from '../services/auth/AuthProvider';
+import { ToastProvider } from '../components/toast/ToastProvider';
 
 export const metadata: Metadata = {
   title: 'GEN-Task',
@@ -65,7 +66,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body>
         <MantineProvider theme={theme} forceColorScheme="dark">
-          <AuthProvider>{children}</AuthProvider>
+          <ToastProvider>
+            <AuthProvider>{children}</AuthProvider>
+          </ToastProvider>
         </MantineProvider>
       </body>
     </html>

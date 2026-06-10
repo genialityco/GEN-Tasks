@@ -15,8 +15,14 @@ import {
   Tooltip,
 } from '@mantine/core';
 import { IconTrash } from '@tabler/icons-react';
-import { NotificationChannel, type MessageTemplate } from '@gen-task/shared';
+import {
+  NotificationChannel,
+  type ActivityCustomField,
+  type MessageTemplate,
+  type Project,
+} from '@gen-task/shared';
 import { templatesApi } from '../../services/api/templates.api';
+import { projectsApi } from '../../services/api/projects.api';
 import { useAsync } from '../../hooks/useAsync';
 
 /** Etiquetas legibles de cada medio de entrega de notificacion. */
@@ -52,31 +58,80 @@ function usesEmail(channel: NotificationChannel): boolean {
 
 type EditableField = HTMLTextAreaElement | HTMLInputElement;
 
+/** Una variable insertable (clave interpolable + etiqueta legible). */
+interface TemplateVar {
+  key: string;
+  label: string;
+}
+
+/** Boton-chip que inserta `{{clave}}` sin robar el foco del campo activo. */
+function VarChip({
+  variable,
+  color,
+  onInsert,
+}: {
+  variable: TemplateVar;
+  color: string;
+  onInsert: (text: string) => void;
+}) {
+  return (
+    <Tooltip label={`{{${variable.key}}}`} withArrow>
+      <Button
+        size="compact-xs"
+        variant="light"
+        color={color}
+        onMouseDown={(e) => e.preventDefault()} // no robar el foco del campo
+        onClick={() => onInsert(`{{${variable.key}}}`)}
+      >
+        {variable.label}
+      </Button>
+    </Tooltip>
+  );
+}
+
 /**
  * Chips de variables: al hacer clic insertan `{{clave}}` en la posicion del
  * cursor del ultimo campo (asunto o cuerpo) enfocado. Mismo patron que Motorola.
+ * Muestra las variables del sistema y, si se selecciono un proyecto, tambien los
+ * campos personalizados de ese proyecto.
  */
-function VariableChips({ onInsert }: { onInsert: (text: string) => void }) {
+function VariableChips({
+  customVars,
+  onInsert,
+}: {
+  customVars: TemplateVar[];
+  onInsert: (text: string) => void;
+}) {
   return (
-    <Group gap={4}>
-      <Text size="xs" fw={700} c="blue.7" w="100%">
-        Variables — haz clic para insertarla donde está el cursor:
-      </Text>
-      {TEMPLATE_VARS.map(({ key, label }) => (
-        <Tooltip key={key} label={`{{${key}}}`} withArrow>
-          <Button
-            size="compact-xs"
-            variant="light"
-            color="blue"
-            onMouseDown={(e) => e.preventDefault()} // no robar el foco del campo
-            onClick={() => onInsert(`{{${key}}}`)}
-          >
-            {label}
-          </Button>
-        </Tooltip>
-      ))}
-    </Group>
+    <Stack gap={6}>
+      <Group gap={4}>
+        <Text size="xs" fw={700} c="blue.7" w="100%">
+          Variables — haz clic para insertarla donde está el cursor:
+        </Text>
+        {TEMPLATE_VARS.map((v) => (
+          <VarChip key={v.key} variable={v} color="blue" onInsert={onInsert} />
+        ))}
+      </Group>
+      {customVars.length > 0 && (
+        <Group gap={4}>
+          <Text size="xs" fw={700} c="teal.7" w="100%">
+            Campos personalizados del proyecto seleccionado:
+          </Text>
+          {customVars.map((v) => (
+            <VarChip key={v.key} variable={v} color="teal" onInsert={onInsert} />
+          ))}
+        </Group>
+      )}
+    </Stack>
   );
+}
+
+/** Campos personalizados activos de un proyecto, como variables insertables. */
+function projectCustomVars(project: Project | undefined): TemplateVar[] {
+  if (!project) return [];
+  return (project.customFields ?? [])
+    .filter((f: ActivityCustomField) => f.isActive && !f.isArchived)
+    .map((f: ActivityCustomField) => ({ key: f.key, label: f.label }));
 }
 
 /**
@@ -88,6 +143,7 @@ function TemplateFields({
   channel,
   subject,
   body,
+  projects,
   onChannel,
   onSubject,
   onBody,
@@ -95,12 +151,20 @@ function TemplateFields({
   channel: NotificationChannel;
   subject: string;
   body: string;
+  /** Proyectos de la organizacion, para elegir de cual mostrar sus campos. */
+  projects: Project[];
   onChannel: (c: NotificationChannel) => void;
   onSubject: (s: string) => void;
   onBody: (b: string) => void;
 }) {
   // Ultimo campo enfocado, para insertar la variable en el cursor.
   const active = useRef<{ el: EditableField; field: 'subject' | 'body' } | null>(null);
+  // Proyecto cuyas variables de campos personalizados se muestran como chips.
+  // Es solo una ayuda para insertar `{{clave}}`; no se persiste en la plantilla
+  // (la plantilla es de la organizacion y aplica a todos los proyectos).
+  const [previewProjectId, setPreviewProjectId] = useState<string | null>(null);
+  const previewProject = projects.find((p) => p.id === previewProjectId);
+  const customVars = projectCustomVars(previewProject);
 
   function insertVar(text: string) {
     const cur = active.current;
@@ -132,8 +196,22 @@ function TemplateFields({
         maw={260}
       />
 
+      {projects.length > 0 && (
+        <Select
+          label="Ver campos del proyecto"
+          description="Solo para mostrar sus campos como variables. No se guarda en la plantilla."
+          placeholder="Selecciona un proyecto..."
+          data={projects.map((p) => ({ value: p.id, label: p.name }))}
+          value={previewProjectId}
+          onChange={setPreviewProjectId}
+          clearable
+          searchable
+          maw={320}
+        />
+      )}
+
       <Paper p="sm" radius="sm" withBorder bg="blue.0">
-        <VariableChips onInsert={insertVar} />
+        <VariableChips customVars={customVars} onInsert={insertVar} />
       </Paper>
 
       {usesEmail(channel) && (
@@ -169,6 +247,13 @@ export function TemplatesManager({ organizationId }: { organizationId: string })
     () => templatesApi.list(organizationId),
     [organizationId],
   );
+  // Proyectos de la organizacion: alimentan el selector "Ver campos del
+  // proyecto" para insertar campos personalizados como variables.
+  const { data: projects } = useAsync(
+    () => projectsApi.listByOrg(organizationId),
+    [organizationId],
+  );
+  const projectList = projects ?? [];
 
   return (
     <Stack gap="lg" maw={760}>
@@ -189,14 +274,23 @@ export function TemplatesManager({ organizationId }: { organizationId: string })
         <Text fw={700}>Plantillas existentes</Text>
         {loading && <Text>Cargando...</Text>}
         {templates?.map((t) => (
-          <TemplateCard key={t.id} template={t} onChanged={reload} />
+          <TemplateCard
+            key={t.id}
+            template={t}
+            projects={projectList}
+            onChanged={reload}
+          />
         ))}
         {templates && templates.length === 0 && (
           <Text c="dimmed">No hay plantillas configuradas.</Text>
         )}
       </Stack>
 
-      <NewTemplateForm organizationId={organizationId} onCreated={reload} />
+      <NewTemplateForm
+        organizationId={organizationId}
+        projects={projectList}
+        onCreated={reload}
+      />
     </Stack>
   );
 }
@@ -204,9 +298,11 @@ export function TemplatesManager({ organizationId }: { organizationId: string })
 /** Plantilla existente: edicion del canal/asunto/cuerpo con chips de variables. */
 function TemplateCard({
   template,
+  projects,
   onChanged,
 }: {
   template: MessageTemplate;
+  projects: Project[];
   onChanged: () => void;
 }) {
   const [channel, setChannel] = useState<NotificationChannel>(
@@ -266,6 +362,7 @@ function TemplateCard({
           channel={channel}
           subject={subject}
           body={body}
+          projects={projects}
           onChannel={setChannel}
           onSubject={setSubject}
           onBody={setBody}
@@ -283,9 +380,11 @@ function TemplateCard({
 /** Formulario de nueva plantilla, armado con el mismo editor que las existentes. */
 function NewTemplateForm({
   organizationId,
+  projects,
   onCreated,
 }: {
   organizationId: string;
+  projects: Project[];
   onCreated: () => void;
 }) {
   const [key, setKey] = useState('');
@@ -345,6 +444,7 @@ function NewTemplateForm({
           channel={channel}
           subject={subject}
           body={body}
+          projects={projects}
           onChannel={setChannel}
           onSubject={setSubject}
           onBody={setBody}

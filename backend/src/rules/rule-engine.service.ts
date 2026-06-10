@@ -4,6 +4,7 @@ import {
   CustomFieldType,
   FirestoreCollections,
   Host,
+  NotificationChannel,
   Organization,
   Project,
   ProjectRule,
@@ -224,10 +225,13 @@ export class RuleEngineService {
         });
         const next = { ...activity, responsibleIds };
         // Notifica al responsable recien asignado por la regla (best effort).
+        // El canal lo elige la regla (WhatsApp / Correo / Ambos); si no se
+        // configuro, `notifyResponsibleAssigned` cae a la plantilla / WhatsApp.
         await this.notifications.notifyResponsibleAssigned({
           activity: next,
           project,
           responsibleUserIds: [responsibleId],
+          channel: payload.notificationChannel as NotificationChannel | undefined,
         });
         return next;
       }

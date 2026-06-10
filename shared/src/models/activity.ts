@@ -38,6 +38,12 @@ export interface Activity {
   createdBy?: string;
   /** Presente cuando la actividad fue creada por un Host desde WhatsApp. */
   hostId?: string;
+  /**
+   * Marca de las alertas de cumplimiento por estado (SLA) ya enviadas, indexada
+   * por `statusId` del estado objetivo, con la fecha ISO de envio. Evita reenviar
+   * la misma alerta. Ver `StatusComplianceAlert` y el cron de cumplimiento.
+   */
+  complianceAlertsSent?: Record<string, IsoDate>;
   isArchived: boolean;
   createdAt: IsoDate;
   updatedAt: IsoDate;

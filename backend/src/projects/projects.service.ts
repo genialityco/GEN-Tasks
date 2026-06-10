@@ -158,9 +158,20 @@ export class ProjectsService {
       // Objeto plano para Firestore (no una instancia de clase).
       patch.compliance = {
         enabled: dto.compliance.enabled,
-        defaultDurationDays: dto.compliance.defaultDurationDays,
+        defaultDurationDays: dto.compliance.defaultDurationDays ?? null,
         attentionThresholdDays: dto.compliance.attentionThresholdDays,
         criticalThresholdDays: dto.compliance.criticalThresholdDays,
+        // Alertas por estado (SLA): objetos planos para Firestore. Ausente o
+        // vacio = sin alertas. Se normalizan los campos opcionales a null.
+        statusAlerts: (dto.compliance.statusAlerts ?? []).map((a) => ({
+          statusId: a.statusId,
+          daysFromCreation: a.daysFromCreation,
+          enabled: a.enabled,
+          recipientType: a.recipientType,
+          recipientUserId: a.recipientUserId ?? null,
+          recipientPhone: a.recipientPhone ?? null,
+          message: a.message,
+        })),
       };
     }
     if (dto.hiddenColumnKeys !== undefined) {

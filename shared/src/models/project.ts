@@ -6,6 +6,7 @@ import {
   RuleEvent,
   StatusType,
   UserRole,
+  WhatsappRecipientType,
 } from '../enums';
 
 /** Estado configurable de un proyecto. */
@@ -125,6 +126,40 @@ export interface ProjectCompliance {
   attentionThresholdDays: number;
   /** Faltando <= estos dias (incl. vencido): rojo (a punto de expirar/expirado). */
   criticalThresholdDays: number;
+  /**
+   * Alertas de cumplimiento por estado (SLA). Cada entrada define un plazo
+   * "X dias desde la creacion" en el que la actividad deberia haber ALCANZADO
+   * (o superado) un estado concreto. Si al llegar ese plazo la actividad aun no
+   * lo alcanzo, se envia un WhatsApp automatico (una sola vez por actividad y
+   * estado). Solo aplica cuando `enabled` es `true`.
+   */
+  statusAlerts?: StatusComplianceAlert[];
+}
+
+/**
+ * Alerta de cumplimiento (SLA) asociada a un estado del proyecto. El plazo se
+ * mide en dias desde la creacion de la actividad; el incumplimiento se evalua
+ * comparando el `order` del estado actual de la actividad contra el `order` del
+ * estado objetivo (`statusId`): si es menor, la actividad aun no lo alcanzo.
+ */
+export interface StatusComplianceAlert {
+  /** Estado objetivo que la actividad deberia alcanzar dentro del plazo. */
+  statusId: string;
+  /** Dias desde la creacion de la actividad para alcanzar el estado objetivo. */
+  daysFromCreation: number;
+  /** Si `false`, la alerta no se evalua ni se envia. */
+  enabled: boolean;
+  /** A quien se envia el WhatsApp cuando la actividad incumple el plazo. */
+  recipientType: WhatsappRecipientType;
+  /** Usuario destinatario cuando `recipientType` = MEMBER. */
+  recipientUserId?: string;
+  /** Telefono destinatario cuando `recipientType` = PHONE. */
+  recipientPhone?: string;
+  /**
+   * Texto del mensaje. Soporta variables `{{activityName}}`, `{{statusName}}`,
+   * `{{projectName}}`, `{{daysFromCreation}}` y `{{link}}`.
+   */
+  message: string;
 }
 
 /** Nivel del semaforo de cumplimiento de una actividad. */

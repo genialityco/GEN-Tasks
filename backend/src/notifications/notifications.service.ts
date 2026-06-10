@@ -2,6 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   Activity,
+  ActivityCustomField,
+  ActivityFileAttachment,
+  CustomFieldType,
   FirestoreCollections,
   NotificationChannel,
   Organization,
@@ -40,6 +43,12 @@ interface ResponsibleAssignedContext {
   project: Project;
   /** Ids de usuarios recien asignados (no toda la lista de responsables). */
   responsibleUserIds: string[];
+  /**
+   * Canal de entrega forzado por quien dispara la notificacion (p. ej. la regla
+   * "Notificar a"). Si se define, tiene prioridad sobre el canal de la plantilla.
+   * Si no, se usa el canal de la plantilla y, en su defecto, WhatsApp.
+   */
+  channel?: NotificationChannel;
 }
 
 /**
@@ -99,9 +108,10 @@ export class NotificationsService {
     const template =
       templateDoc?.body ??
       DEFAULT_TEMPLATES[NotificationTemplateKey.RESPONSIBLE_ASSIGNED];
-    // Canal de entrega: lo define la plantilla; si no esta configurado se usa
-    // WhatsApp por defecto.
-    const channel = templateDoc?.channel ?? NotificationChannel.WHATSAPP;
+    // Canal de entrega: prioriza el canal forzado por quien dispara (regla
+    // "Notificar a"); si no, el de la plantilla; y en su defecto, WhatsApp.
+    const channel =
+      ctx.channel ?? templateDoc?.channel ?? NotificationChannel.WHATSAPP;
 
     for (const userId of ctx.responsibleUserIds) {
       try {
@@ -109,6 +119,11 @@ export class NotificationsService {
         if (!user) continue;
 
         const vars: Record<string, string> = {
+          // Valores de los campos personalizados del proyecto, indexados por su
+          // `key` (p. ej. {{prioridad}}). Se agregan primero para que las
+          // variables del sistema (abajo) tengan prioridad ante una colision de
+          // nombres.
+          ...customFieldVars(ctx.activity, ctx.project),
           responsibleName: user.name ?? '',
           activityName: ctx.activity.name,
           statusName,
@@ -227,6 +242,69 @@ function interpolate(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key: string) =>
     vars[key] !== undefined ? vars[key] : `{{${key}}}`,
   );
+}
+
+/**
+ * Construye las variables de plantilla a partir de los campos personalizados de
+ * la actividad. Cada campo se expone bajo su `key` (la misma que ve el admin en
+ * los chips de variables, p. ej. `{{prioridad}}`) con su valor ya formateado
+ * para texto. Solo se incluyen campos activos (no archivados) que tengan valor.
+ */
+function customFieldVars(
+  activity: Activity,
+  project: Project,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const field of project.customFields ?? []) {
+    if (field.isArchived) continue;
+    const raw = activity.customFieldValues?.[field.key];
+    const formatted = formatCustomFieldValue(field, raw);
+    if (formatted !== null) out[field.key] = formatted;
+  }
+  return out;
+}
+
+/**
+ * Formatea el valor de un campo personalizado a texto legible segun su tipo.
+ * Devuelve `null` cuando el campo no tiene valor (asi la variable cae al
+ * placeholder por defecto en lugar de mostrar un texto vacio confuso).
+ */
+function formatCustomFieldValue(
+  field: ActivityCustomField,
+  raw: unknown,
+): string | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+
+  switch (field.type) {
+    case CustomFieldType.LIST: {
+      // El valor guardado es el `value` de la opcion; se muestra su `label`.
+      const values = Array.isArray(raw) ? raw : [raw];
+      const labels = values.map((v) => {
+        const opt = field.options?.find((o) => o.value === v);
+        return opt?.label ?? String(v);
+      });
+      return labels.join(', ') || null;
+    }
+
+    case CustomFieldType.FILE:
+    case CustomFieldType.IMAGE:
+    case CustomFieldType.VIDEO: {
+      // Adjuntos: se listan los nombres de archivo (no las URLs firmadas).
+      const files = Array.isArray(raw) ? (raw as ActivityFileAttachment[]) : [];
+      const names = files.map((f) => f?.name).filter(Boolean);
+      return names.length > 0 ? names.join(', ') : null;
+    }
+
+    case CustomFieldType.DATE: {
+      const date = new Date(String(raw));
+      if (Number.isNaN(date.getTime())) return String(raw);
+      // Fecha local en formato es-CO (dd/mm/aaaa).
+      return date.toLocaleDateString('es-CO');
+    }
+
+    default:
+      return String(raw);
+  }
 }
 
 /**

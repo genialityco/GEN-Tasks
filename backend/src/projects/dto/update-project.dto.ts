@@ -10,8 +10,34 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { LogicalOperator } from '@gen-task/shared';
+import { LogicalOperator, WhatsappRecipientType } from '@gen-task/shared';
 import { RuleConditionDto } from '../../gestores/dto/gestor-access-rule.dto';
+
+export class StatusComplianceAlertDto {
+  @IsString()
+  statusId!: string;
+
+  @IsInt()
+  @Min(0)
+  daysFromCreation!: number;
+
+  @IsBoolean()
+  enabled!: boolean;
+
+  @IsEnum(WhatsappRecipientType)
+  recipientType!: WhatsappRecipientType;
+
+  @IsOptional()
+  @IsString()
+  recipientUserId?: string;
+
+  @IsOptional()
+  @IsString()
+  recipientPhone?: string;
+
+  @IsString()
+  message!: string;
+}
 
 export class ComplianceDto {
   @IsBoolean()
@@ -29,6 +55,12 @@ export class ComplianceDto {
   @IsInt()
   @Min(0)
   criticalThresholdDays!: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => StatusComplianceAlertDto)
+  statusAlerts?: StatusComplianceAlertDto[];
 }
 
 export class StatusTransitionGuardDto {
