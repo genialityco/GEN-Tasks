@@ -51,6 +51,15 @@ export interface OrganizationMember {
 }
 
 /**
+ * Gestor (membresia con rol GESTOR) enriquecido con el nombre y correo de su
+ * usuario, para listarlo de forma legible en el panel de gestores.
+ */
+export interface GestorListItem extends OrganizationMembership {
+  name: string;
+  email: string;
+}
+
+/**
  * Contexto de autenticacion resuelto por el backend a partir del token de Firebase.
  * Se inyecta en cada request autenticada.
  */

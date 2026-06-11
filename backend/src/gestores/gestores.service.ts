@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   FirestoreCollections,
   GestorAccessRule,
+  GestorListItem,
   OrganizationMembership,
   UserRole,
 } from '@gen-task/shared';
@@ -26,9 +27,22 @@ export class GestoresService {
     );
   }
 
-  /** Lista los gestores (membresias con rol GESTOR) de una organizacion. */
-  listGestores(organizationId: string): Promise<OrganizationMembership[]> {
-    return this.users.listMemberships(organizationId, UserRole.GESTOR);
+  /**
+   * Lista los gestores (membresias con rol GESTOR) de una organizacion,
+   * enriquecidos con el nombre y correo de su usuario para mostrarlos de forma
+   * legible.
+   */
+  async listGestores(organizationId: string): Promise<GestorListItem[]> {
+    const memberships = await this.users.listMemberships(
+      organizationId,
+      UserRole.GESTOR,
+    );
+    return Promise.all(
+      memberships.map(async (m) => {
+        const user = await this.users.findByIdOrNull(m.userId);
+        return { ...m, name: user?.name ?? '', email: user?.email ?? '' };
+      }),
+    );
   }
 
   /**
@@ -41,6 +55,7 @@ export class GestoresService {
       email: string;
       name: string;
       password?: string;
+      phone?: string;
       projectIds?: string[];
     },
   ): Promise<OrganizationMembership> {
@@ -48,6 +63,7 @@ export class GestoresService {
       input.email,
       input.name,
       input.password,
+      input.phone,
     );
     return this.users.createMembership({
       userId: user.id,

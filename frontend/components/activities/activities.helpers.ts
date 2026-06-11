@@ -102,6 +102,65 @@ export const COMPLIANCE_LABEL: Record<ComplianceLevel, string> = {
   [ComplianceLevel.CRITICAL]: 'Por expirar / vencido',
 };
 
+/**
+ * Cuenta regresiva de una alerta de cumplimiento por estado (SLA) pendiente:
+ * el estado objetivo que la actividad aun no ha alcanzado y la fecha limite
+ * (`createdAt + daysFromCreation`) para alcanzarlo.
+ */
+export interface StatusAlertCountdown {
+  statusId: string;
+  statusName: string;
+  deadline: Date;
+  remainingDays: number;
+  remainingLabel: string;
+  overdue: boolean;
+}
+
+/**
+ * Tiempo restante para alcanzar cada estado que tiene una alerta de
+ * cumplimiento activa y que la actividad aun no ha alcanzado. Solo aplica con
+ * el semaforo habilitado y para actividades abiertas (no cerradas/archivadas).
+ * Replica el criterio del cron de alertas: la actividad "alcanzo" el estado si
+ * el `order` de su estado actual es >= al del estado objetivo. Ordenado por
+ * fecha limite ascendente (lo mas urgente primero).
+ */
+export function computeStatusAlertCountdowns(
+  activity: Activity,
+  project: Project,
+  statusMap: Map<string, ProjectStatus>,
+  now: Date = new Date(),
+): StatusAlertCountdown[] {
+  const c = project.compliance;
+  if (!c?.enabled || activity.isArchived) return [];
+
+  const currentStatus = statusMap.get(activity.statusId);
+  if (currentStatus?.type === StatusType.CLOSED) return [];
+  const currentOrder = currentStatus?.order ?? -1;
+
+  const created = new Date(activity.createdAt);
+  if (Number.isNaN(created.getTime())) return [];
+
+  const out: StatusAlertCountdown[] = [];
+  for (const alert of c.statusAlerts ?? []) {
+    if (!alert.enabled) continue;
+    const target = statusMap.get(alert.statusId);
+    // Estado objetivo inexistente o ya alcanzado/superado: no aplica.
+    if (!target || currentOrder >= target.order) continue;
+    const deadline = new Date(created.getTime() + alert.daysFromCreation * MS_PER_DAY);
+    const remainingDays = daysUntil(deadline, now);
+    out.push({
+      statusId: alert.statusId,
+      statusName: target.name,
+      deadline,
+      remainingDays,
+      remainingLabel: deadlineRemainingLabel(deadline, now),
+      overdue: remainingDays < 0,
+    });
+  }
+  out.sort((a, b) => a.deadline.getTime() - b.deadline.getTime());
+  return out;
+}
+
 /** Texto humano del tiempo restante: "en 3 días", "vence hoy", "venció hace 2 días". */
 export function deadlineRemainingLabel(deadline: Date, now: Date = new Date()): string {
   const d = daysUntil(deadline, now);

@@ -27,6 +27,7 @@ import {
 } from "@tabler/icons-react";
 import {
   ActivityHistoryType,
+  ComplianceLevel,
   isFieldVisibleForActivity,
   StatusType,
   UserRole,
@@ -46,6 +47,7 @@ import {
   buildStatusMap,
   computeComplianceLevel,
   computeDeadline,
+  computeStatusAlertCountdowns,
   deadlineRemainingLabel,
   statusColor,
   statusName,
@@ -152,6 +154,12 @@ export function ActivityDetail({
   const statusMap = buildStatusMap(project);
   const deadline = computeDeadline(activity, project);
   const complianceLevel = computeComplianceLevel(activity, project, statusMap);
+  // Tiempo restante para alcanzar los estados con alerta de cumplimiento activa.
+  const statusAlertCountdowns = computeStatusAlertCountdowns(
+    activity,
+    project,
+    statusMap,
+  );
   const [editingSchedule, setEditingSchedule] = useState(false);
   const [scheduleValue, setScheduleValue] = useState(
     activity.scheduledDate ? activity.scheduledDate.slice(0, 10) : "",
@@ -771,6 +779,37 @@ export function ActivityDetail({
               </Group>
             )}
           </Stack>
+
+          {/* Cumplimiento por estado (SLA): tiempo restante para alcanzar los
+              estados que tienen una alerta de cumplimiento activa. */}
+          {statusAlertCountdowns.length > 0 && (
+            <Stack gap={4}>
+              <Text fw={700} size="sm" c="dimmed">
+                Cumplimiento por estado
+              </Text>
+              <Stack gap={6}>
+                {statusAlertCountdowns.map((c) => (
+                  <Group key={c.statusId} gap={6} wrap="nowrap">
+                    <IconCircleFilled
+                      size={12}
+                      color={
+                        c.overdue
+                          ? COMPLIANCE_COLOR[ComplianceLevel.CRITICAL]
+                          : COMPLIANCE_COLOR[ComplianceLevel.ON_TIME]
+                      }
+                    />
+                    <Text size="sm">
+                      {c.statusName}
+                      <Text span size="sm" c={c.overdue ? "red" : "dimmed"}>
+                        {" "}
+                        · {c.remainingLabel}
+                      </Text>
+                    </Text>
+                  </Group>
+                ))}
+              </Stack>
+            </Stack>
+          )}
 
           {/* Responsables */}
           <Stack gap={4}>

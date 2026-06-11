@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Paper, Tabs, Title, Loader, Alert, Stack } from '@mantine/core';
 import { useAuth } from '../../../../../services/auth/AuthProvider';
 import {
@@ -10,17 +10,15 @@ import {
 } from '../../../../../services/auth/roles';
 import { useProject } from '../../../../../hooks/useProjects';
 import { ActivitiesPanel } from '../../../../../components/activities/ActivitiesPanel';
-import { ProjectConfig } from '../../../../../components/projects/ProjectConfig';
 import { GestoresPanel } from '../../../../../components/gestores/GestoresPanel';
 import { HostsPanel } from '../../../../../components/hosts/HostsPanel';
 
-type Tab = 'activities' | 'host' | 'gestores' | 'config';
+type Tab = 'activities' | 'host' | 'gestores';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'activities', label: 'Actividades' },
   { key: 'host', label: 'Host' },
   { key: 'gestores', label: 'Gestores' },
-  { key: 'config', label: 'Configuración del Proyecto' },
 ];
 
 export default function ProjectPage() {
@@ -31,6 +29,17 @@ export default function ProjectPage() {
 
   const { data: project, loading, error, reload } = useProject(params.projectId);
   const visibleTabs = TABS.filter((t) => canViewProjectTab(role, t.key));
+
+  // Refresca el proyecto cuando se guarda su configuracion desde el modal
+  // del sidebar.
+  useEffect(() => {
+    function onProjectChanged(e: Event) {
+      if ((e as CustomEvent<string>).detail === params.projectId) reload();
+    }
+    window.addEventListener('gt:project-changed', onProjectChanged);
+    return () =>
+      window.removeEventListener('gt:project-changed', onProjectChanged);
+  }, [params.projectId, reload]);
 
   return (
     <main style={{ padding: 24 }}>
@@ -64,10 +73,6 @@ export default function ProjectPage() {
 
               <Tabs.Panel value="gestores">
                 <GestoresPanel organizationId={params.organizationId} project={project} />
-              </Tabs.Panel>
-
-              <Tabs.Panel value="config">
-                <ProjectConfig project={project} onChanged={reload} />
               </Tabs.Panel>
             </Tabs>
           </Paper>

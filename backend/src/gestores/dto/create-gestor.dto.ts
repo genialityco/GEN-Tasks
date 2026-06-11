@@ -21,6 +21,10 @@ export class CreateGestorDto {
   password?: string;
 
   @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
   @IsArray()
   @ArrayUnique()
   @IsString({ each: true })

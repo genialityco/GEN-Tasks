@@ -45,6 +45,11 @@ export class UsersService {
     return user;
   }
 
+  /** Como `findOne` pero devuelve `null` en vez de lanzar si no existe. */
+  async findByIdOrNull(id: string): Promise<User | null> {
+    return docToEntity<User>(await this.users.doc(id).get());
+  }
+
   /**
    * Crea el usuario en Firebase Auth y su perfil espejo en Firestore.
    * El uid de Auth es el id del documento (fuente unica de identidad).

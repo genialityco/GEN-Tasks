@@ -37,6 +37,8 @@ export function GestoresPanel({
 
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -49,10 +51,14 @@ export function GestoresPanel({
       await gestoresApi.create(organizationId, {
         email: email.trim(),
         name: name.trim(),
+        password: password.trim(),
+        phone: phone.trim() || undefined,
         projectIds: [project.id],
       });
       setEmail('');
       setName('');
+      setPassword('');
+      setPhone('');
       reload();
     } catch (err) {
       setError((err as Error).message);
@@ -80,7 +86,10 @@ export function GestoresPanel({
               }}
             >
               <span>
-                Gestor <span className="gt-muted">({g.userId.slice(0, 8)}…)</span>
+                {g.name || g.email || 'Gestor'}
+                {g.name && g.email && (
+                  <span className="gt-muted"> · {g.email}</span>
+                )}
               </span>
               <button
                 className="gt-btn"
@@ -114,10 +123,32 @@ export function GestoresPanel({
             onChange={(e) => setName(e.target.value)}
             required
           />
+          <input
+            className="gt-input"
+            style={{ flex: 1, minWidth: 150 }}
+            type="password"
+            placeholder="Contraseña (mín. 6)"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            minLength={6}
+            required
+            autoComplete="new-password"
+          />
+          <input
+            className="gt-input"
+            style={{ flex: 1, minWidth: 150 }}
+            placeholder="Celular (opcional, WhatsApp)"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
           <button className="gt-btn" type="submit" disabled={busy}>
             Agregar gestor
           </button>
         </form>
+        <span className="gt-muted" style={{ fontSize: 12 }}>
+          El gestor inicia sesión en el login con su correo y esta contraseña. El
+          celular es opcional y solo se usa para notificaciones por WhatsApp.
+        </span>
       </div>
 
       {selected && (

@@ -1,5 +1,6 @@
 import type {
   GestorAccessRule,
+  GestorListItem,
   LogicalOperator,
   OrganizationMembership,
 } from '@gen-task/shared';
@@ -22,12 +23,18 @@ export interface UpsertGestorRuleInput {
 
 export const gestoresApi = {
   list: (organizationId: string) =>
-    apiClient.get<OrganizationMembership[]>(
+    apiClient.get<GestorListItem[]>(
       `/organizations/${organizationId}/gestores`,
     ),
   create: (
     organizationId: string,
-    body: { email: string; name: string; password?: string; projectIds?: string[] },
+    body: {
+      email: string;
+      name: string;
+      password?: string;
+      phone?: string;
+      projectIds?: string[];
+    },
   ) =>
     apiClient.post<OrganizationMembership>(
       `/organizations/${organizationId}/gestores`,

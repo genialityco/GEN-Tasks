@@ -2,11 +2,19 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useState } from 'react';
+import { ActionIcon, Tooltip } from '@mantine/core';
+import { IconSettings } from '@tabler/icons-react';
 import { useProjects } from '../../hooks/useProjects';
+import { useAuth } from '../../services/auth/AuthProvider';
+import { canViewProjectTab, roleInOrganization } from '../../services/auth/roles';
+import { ProjectConfigModal } from '../projects/ProjectConfigModal';
 
 /**
  * Sidebar del panel de organizacion: lista de proyectos y acceso a ChatWhatsapp.
  * El enlace de WhatsApp solo se muestra si la funcionalidad esta habilitada.
+ * Cada proyecto muestra una tuerca (solo para admins) que abre un modal con su
+ * configuracion.
  */
 export function OrganizationSidebar({
   organizationId,
@@ -17,6 +25,10 @@ export function OrganizationSidebar({
 }) {
   const pathname = usePathname();
   const { data: projects, loading } = useProjects(organizationId);
+  const { profile } = useAuth();
+  const role = roleInOrganization(profile, organizationId);
+  const canConfigure = canViewProjectTab(role, 'config');
+  const [configProjectId, setConfigProjectId] = useState<string | null>(null);
 
   const linkStyle = (active: boolean) => ({
     display: 'block',
@@ -48,9 +60,29 @@ export function OrganizationSidebar({
           {projects?.map((p) => {
             const href = `/organizations/${organizationId}/projects/${p.id}`;
             return (
-              <Link key={p.id} href={href} style={linkStyle(pathname === href)}>
-                {p.name}
-              </Link>
+              <div
+                key={p.id}
+                style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+              >
+                <Link
+                  href={href}
+                  style={{ ...linkStyle(pathname === href), flex: 1, minWidth: 0 }}
+                >
+                  {p.name}
+                </Link>
+                {canConfigure && (
+                  <Tooltip label="Configuración del proyecto" withArrow>
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      aria-label={`Configurar ${p.name}`}
+                      onClick={() => setConfigProjectId(p.id)}
+                    >
+                      <IconSettings size={18} />
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+              </div>
             );
           })}
           {projects && projects.length === 0 && (
@@ -78,6 +110,13 @@ export function OrganizationSidebar({
             ChatWhatsapp
           </Link>
         </div>
+      )}
+
+      {configProjectId && (
+        <ProjectConfigModal
+          projectId={configProjectId}
+          onClose={() => setConfigProjectId(null)}
+        />
       )}
     </aside>
   );
