@@ -28,7 +28,7 @@ export function isInlineEditableColumn(
   columnKey: string,
   project: Project,
 ): boolean {
-  if (columnKey === 'status' || columnKey === 'name' || columnKey === 'scheduledDate') {
+  if (columnKey === 'status' || columnKey === 'name') {
     return true;
   }
   if (columnKey.startsWith('cf_')) {
@@ -56,7 +56,6 @@ export function InlineCellEditor({
   onDone: (error?: string, changed?: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<'date' | 'hours'>('date');
 
   async function commit(fn: () => Promise<unknown>, unchanged: boolean) {
     if (unchanged) {
@@ -120,56 +119,6 @@ export function InlineCellEditor({
         }
         onCancel={onDone}
       />
-    );
-  }
-
-  // --- Programacion ---
-  if (columnKey === 'scheduledDate') {
-    const initial = activity.scheduledDate ? activity.scheduledDate.slice(0, 10) : '';
-    // Modo: fecha exacta o horas desde createdAt
-    return (
-      <Group gap={6} wrap="nowrap">
-        <Select
-          size="xs"
-          value={mode}
-          data={[{ value: 'date', label: 'Fecha' }, { value: 'hours', label: 'Horas desde creación' }]}
-          onChange={(v) => setMode((v as 'date' | 'hours') ?? 'date')}
-        />
-        {mode === 'date' ? (
-          <InlineText
-            type="date"
-            initial={initial}
-            onCommit={(val) =>
-              commit(
-                () =>
-                  // Construir Date en hora local para evitar desfases de zona horaria
-                  (async () => {
-                    if (!val) return activitiesApi.update(activity.id, { scheduledDate: undefined });
-                    const [y, m, d] = val.split('-').map((s) => Number(s));
-                    const local = new Date(y, m - 1, d);
-                    return activitiesApi.update(activity.id, { scheduledDate: local.toISOString() });
-                  })(),
-                val === initial,
-              )
-            }
-            onCancel={onDone}
-          />
-        ) : (
-          <InlineNumber
-            initial={undefined}
-            onCommit={(hours) => {
-              if (hours == null) {
-                commit(() => activitiesApi.update(activity.id, { scheduledDate: undefined }), false);
-                return;
-              }
-              const created = new Date(activity.createdAt);
-              const target = new Date(created.getTime() + Math.round(Number(hours)) * 3600 * 1000);
-              commit(() => activitiesApi.update(activity.id, { scheduledDate: target.toISOString() }), false);
-            }}
-            onCancel={onDone}
-          />
-        )}
-      </Group>
     );
   }
 

@@ -2,9 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   Activity,
-  ActivityCustomField,
-  ActivityFileAttachment,
-  CustomFieldType,
   FirestoreCollections,
   NotificationChannel,
   Organization,
@@ -16,6 +13,7 @@ import { docToEntity } from '../firebase/firestore.helpers';
 import { WhatsappCloudApiService } from '../whatsapp/whatsapp-cloud-api.service';
 import { MessageTemplatesService } from '../whatsapp/message-templates.service';
 import { EmailService } from './email.service';
+import { buildActivityVars, interpolate } from '../common/template-vars';
 
 /**
  * Claves logicas de las plantillas de notificacion. Cada clave puede tener una
@@ -49,6 +47,18 @@ interface ResponsibleAssignedContext {
    * Si no, se usa el canal de la plantilla y, en su defecto, WhatsApp.
    */
   channel?: NotificationChannel;
+  /**
+   * Mensaje propio de la regla "Notificar a" (admite variables). Si viene con
+   * texto, reemplaza al cuerpo de la plantilla RESPONSIBLE_ASSIGNED; si no, se
+   * usa la plantilla (o su texto por defecto).
+   */
+  messageOverride?: string;
+  /** Solo ON_STATUS_CHANGED: estado origen ({{fromStatusName}}). */
+  fromStatusName?: string;
+  /** Solo ON_STATUS_CHANGED: estado destino ({{toStatusName}}). */
+  toStatusName?: string;
+  /** Solo ON_FIELD_UPDATED: etiquetas de los campos que cambiaron ({{updatedFields}}). */
+  updatedFieldLabels?: string[];
 }
 
 /**
@@ -72,22 +82,10 @@ export class NotificationsService {
   ) {}
 
   /**
-   * Construye el enlace directo al detalle de una actividad en el frontend. Al
-   * abrirlo, el usuario pasa por el login (las rutas estan protegidas por
-   * RequireAuth). La base se toma de FRONTEND_ORIGIN (sin barra final).
-   */
-  private activityLink(activity: Activity): string {
-    const base = (this.config.get<string>('FRONTEND_ORIGIN') ?? '').replace(/\/$/, '');
-    return (
-      `${base}/organizations/${activity.organizationId}` +
-      `/projects/${activity.projectId}/activities/${activity.id}`
-    );
-  }
-
-  /**
    * Notifica a los usuarios recien asignados como responsables de una actividad.
-   * Resuelve telefono y nombre de cada uno, renderiza la plantilla
-   * RESPONSIBLE_ASSIGNED y envia por WhatsApp (y, en el futuro, por correo).
+   * Resuelve telefono/nombre de cada uno y renderiza el mensaje (el propio de la
+   * regla si lo trae, o la plantilla RESPONSIBLE_ASSIGNED) interpolando las
+   * variables de la actividad y del evento. Envia por el canal indicado.
    */
   async notifyResponsibleAssigned(
     ctx: ResponsibleAssignedContext,
@@ -97,9 +95,6 @@ export class NotificationsService {
     const organization = await this.loadOrganization(
       ctx.activity.organizationId,
     );
-    const statusName =
-      ctx.project.statuses.find((s) => s.id === ctx.activity.statusId)?.name ??
-      '';
 
     const templateDoc = await this.templates.getByKey(
       ctx.activity.organizationId,
@@ -108,31 +103,31 @@ export class NotificationsService {
     const template =
       templateDoc?.body ??
       DEFAULT_TEMPLATES[NotificationTemplateKey.RESPONSIBLE_ASSIGNED];
+    // Cuerpo a enviar: el mensaje propio de la regla (admite variables) si trae
+    // texto; si no, la plantilla de la organizacion (o su texto por defecto).
+    const bodyTemplate = ctx.messageOverride?.trim()
+      ? ctx.messageOverride
+      : template;
     // Canal de entrega: prioriza el canal forzado por quien dispara (regla
     // "Notificar a"); si no, el de la plantilla; y en su defecto, WhatsApp.
     const channel =
       ctx.channel ?? templateDoc?.channel ?? NotificationChannel.WHATSAPP;
+    const frontendOrigin = this.config.get<string>('FRONTEND_ORIGIN');
 
     for (const userId of ctx.responsibleUserIds) {
       try {
         const user = await this.loadUser(userId);
         if (!user) continue;
 
-        const vars: Record<string, string> = {
-          // Valores de los campos personalizados del proyecto, indexados por su
-          // `key` (p. ej. {{prioridad}}). Se agregan primero para que las
-          // variables del sistema (abajo) tengan prioridad ante una colision de
-          // nombres.
-          ...customFieldVars(ctx.activity, ctx.project),
+        const vars = buildActivityVars(ctx.activity, ctx.project, {
+          organizationName: organization?.name,
+          frontendOrigin,
           responsibleName: user.name ?? '',
-          activityName: ctx.activity.name,
-          statusName,
-          projectName: ctx.project.name,
-          organizationName: organization?.name ?? '',
-          // Enlace directo a la actividad (pide login al abrirlo).
-          link: this.activityLink(ctx.activity),
-        };
-        const body = interpolate(template, vars);
+          fromStatusName: ctx.fromStatusName,
+          toStatusName: ctx.toStatusName,
+          updatedFieldLabels: ctx.updatedFieldLabels,
+        });
+        const body = interpolate(bodyTemplate, vars);
         // Asunto del correo: usa el de la plantilla (interpolado) si se definio;
         // si no, un asunto por defecto.
         const subjectTemplate = templateDoc?.subject?.trim();
@@ -234,76 +229,6 @@ export class NotificationsService {
         .doc(organizationId)
         .get(),
     );
-  }
-}
-
-/** Reemplaza los placeholders `{{clave}}` de una plantilla por sus valores. */
-function interpolate(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key: string) =>
-    vars[key] !== undefined ? vars[key] : `{{${key}}}`,
-  );
-}
-
-/**
- * Construye las variables de plantilla a partir de los campos personalizados de
- * la actividad. Cada campo se expone bajo su `key` (la misma que ve el admin en
- * los chips de variables, p. ej. `{{prioridad}}`) con su valor ya formateado
- * para texto. Solo se incluyen campos activos (no archivados) que tengan valor.
- */
-function customFieldVars(
-  activity: Activity,
-  project: Project,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const field of project.customFields ?? []) {
-    if (field.isArchived) continue;
-    const raw = activity.customFieldValues?.[field.key];
-    const formatted = formatCustomFieldValue(field, raw);
-    if (formatted !== null) out[field.key] = formatted;
-  }
-  return out;
-}
-
-/**
- * Formatea el valor de un campo personalizado a texto legible segun su tipo.
- * Devuelve `null` cuando el campo no tiene valor (asi la variable cae al
- * placeholder por defecto en lugar de mostrar un texto vacio confuso).
- */
-function formatCustomFieldValue(
-  field: ActivityCustomField,
-  raw: unknown,
-): string | null {
-  if (raw === undefined || raw === null || raw === '') return null;
-
-  switch (field.type) {
-    case CustomFieldType.LIST: {
-      // El valor guardado es el `value` de la opcion; se muestra su `label`.
-      const values = Array.isArray(raw) ? raw : [raw];
-      const labels = values.map((v) => {
-        const opt = field.options?.find((o) => o.value === v);
-        return opt?.label ?? String(v);
-      });
-      return labels.join(', ') || null;
-    }
-
-    case CustomFieldType.FILE:
-    case CustomFieldType.IMAGE:
-    case CustomFieldType.VIDEO: {
-      // Adjuntos: se listan los nombres de archivo (no las URLs firmadas).
-      const files = Array.isArray(raw) ? (raw as ActivityFileAttachment[]) : [];
-      const names = files.map((f) => f?.name).filter(Boolean);
-      return names.length > 0 ? names.join(', ') : null;
-    }
-
-    case CustomFieldType.DATE: {
-      const date = new Date(String(raw));
-      if (Number.isNaN(date.getTime())) return String(raw);
-      // Fecha local en formato es-CO (dd/mm/aaaa).
-      return date.toLocaleDateString('es-CO');
-    }
-
-    default:
-      return String(raw);
   }
 }
 

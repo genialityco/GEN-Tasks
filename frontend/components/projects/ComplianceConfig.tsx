@@ -125,22 +125,12 @@ export function ComplianceConfig({
           />
         </Group>
         <Text size="sm" c="dimmed">
-          La fecha límite de una actividad es su programación (fecha exacta). Si no
-          tiene, se calcula como creación + días por defecto.
+          La fecha límite de una actividad es el tiempo límite del estado pendiente
+          más próximo a vencer (definido abajo en las alertas por estado). El color
+          se calcula sobre los días restantes hasta esa fecha.
         </Text>
 
         <Group gap="md" wrap="wrap" align="flex-end">
-          <NumberInput
-            label="Días por defecto"
-            description="Desde la creación"
-            value={value.defaultDurationDays ?? ''}
-            onChange={(v) =>
-              patch({ defaultDurationDays: v === '' ? undefined : Number(v) })
-            }
-            min={0}
-            disabled={!value.enabled}
-            w={150}
-          />
           <NumberInput
             label="Prioritario (amarillo)"
             description="≤ días restantes"

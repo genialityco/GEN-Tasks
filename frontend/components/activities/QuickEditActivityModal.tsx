@@ -1,14 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { Modal, Stack, Group, Button, TextInput, Alert, Text } from '@mantine/core';
+import { Modal, Stack, Group, Button, Alert, Text } from '@mantine/core';
 import { isFieldVisibleForActivity, type Activity, type Project } from '@gen-task/shared';
 import { activitiesApi } from '../../services/api/activities.api';
 import { DynamicField } from './DynamicField';
 
 /**
- * Edicion rapida de una actividad desde el panel: programacion (fecha limite)
- * y campos personalizados, sin abrir el detalle completo.
+ * Edicion rapida de una actividad desde el panel: campos personalizados, sin
+ * abrir el detalle completo. La fecha limite ya no se edita a mano: se deriva del
+ * cumplimiento por estado (el estado pendiente mas proximo a vencer).
  */
 export function QuickEditActivityModal({
   activity,
@@ -21,7 +22,6 @@ export function QuickEditActivityModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [scheduledDate, setScheduledDate] = useState('');
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +30,6 @@ export function QuickEditActivityModal({
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   if (activity && loadedFor !== activity.id) {
     setLoadedFor(activity.id);
-    setScheduledDate(activity.scheduledDate ? activity.scheduledDate.slice(0, 10) : '');
     setValues(activity.customFieldValues ?? {});
     setError(null);
   }
@@ -51,7 +50,6 @@ export function QuickEditActivityModal({
     setError(null);
     try {
       await activitiesApi.update(activity.id, {
-        scheduledDate: scheduledDate ? new Date(scheduledDate).toISOString() : undefined,
         customFieldValues: values,
       });
       onSaved();
@@ -69,13 +67,6 @@ export function QuickEditActivityModal({
         <Stack gap="sm">
           {error && <Alert color="red">{error}</Alert>}
           <Text fw={600}>{activity.name}</Text>
-
-          <TextInput
-            label="Programación (fecha límite)"
-            type="date"
-            value={scheduledDate}
-            onChange={(e) => setScheduledDate(e.currentTarget.value)}
-          />
 
           {editableFields.map((field) => (
             <DynamicField

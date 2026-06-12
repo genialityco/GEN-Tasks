@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Stack,
   Group,
   Text,
   TextInput,
+  Textarea,
   Select,
   Checkbox,
   Button,
@@ -244,6 +245,110 @@ function actionToDraft(a: RuleAction): ActionDraft {
       (p.notificationChannel as NotificationChannel) ?? NotificationChannel.WHATSAPP,
     cfDrafts: fields.length ? fields.map(fieldToDraft) : [emptyFieldDraft()],
   };
+}
+
+/** Una variable insertable en un mensaje (clave interpolable + etiqueta legible). */
+interface MessageVar {
+  key: string;
+  label: string;
+}
+
+/**
+ * Variables disponibles para el mensaje de una accion, segun el evento de la
+ * regla. Incluye las del sistema, las de contexto del evento (estado anterior/
+ * nuevo o campos actualizados) y los campos personalizados del proyecto.
+ */
+function messageVars(event: RuleEvent, fields: ActivityCustomField[]): MessageVar[] {
+  const out: MessageVar[] = [
+    { key: 'activityName', label: 'Actividad' },
+    { key: 'statusName', label: 'Estado actual' },
+    { key: 'projectName', label: 'Proyecto' },
+    { key: 'organizationName', label: 'Organización' },
+    { key: 'link', label: 'Enlace' },
+  ];
+  if (event === RuleEvent.ON_STATUS_CHANGED) {
+    out.push(
+      { key: 'fromStatusName', label: 'Estado anterior' },
+      { key: 'toStatusName', label: 'Estado nuevo' },
+    );
+  }
+  if (event === RuleEvent.ON_FIELD_UPDATED) {
+    out.push({ key: 'updatedFields', label: 'Campos actualizados' });
+  }
+  for (const f of fields) {
+    if (f.isActive && !f.isArchived) out.push({ key: f.key, label: f.label });
+  }
+  return out;
+}
+
+/**
+ * Campo de mensaje de una accion con chips de variables: al hacer clic insertan
+ * `{{clave}}` en la posicion del cursor. El backend reemplaza esas variables por
+ * los valores reales de la actividad al enviar la notificacion.
+ */
+function RuleMessageField({
+  label,
+  placeholder,
+  value,
+  onChange,
+  event,
+  fields,
+}: {
+  label: string;
+  placeholder?: string;
+  value: string;
+  onChange: (v: string) => void;
+  event: RuleEvent;
+  fields: ActivityCustomField[];
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+
+  function insert(token: string) {
+    const el = ref.current;
+    if (!el) {
+      onChange(value + token);
+      return;
+    }
+    const start = el.selectionStart ?? value.length;
+    const end = el.selectionEnd ?? value.length;
+    const next = value.slice(0, start) + token + value.slice(end);
+    onChange(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + token.length, start + token.length);
+    });
+  }
+
+  return (
+    <Stack gap={6} style={{ flex: 1, minWidth: 300 }}>
+      <Textarea
+        ref={ref}
+        label={label}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.currentTarget.value)}
+        autosize
+        minRows={2}
+      />
+      <Group gap={4}>
+        <Text size="xs" fw={700} c="blue.7" w="100%">
+          Variables — clic para insertar donde está el cursor:
+        </Text>
+        {messageVars(event, fields).map((v) => (
+          <Tooltip key={v.key} label={`{{${v.key}}}`} withArrow>
+            <Button
+              size="compact-xs"
+              variant="light"
+              onMouseDown={(e) => e.preventDefault()} // no robar el foco del campo
+              onClick={() => insert(`{{${v.key}}}`)}
+            >
+              {v.label}
+            </Button>
+          </Tooltip>
+        ))}
+      </Group>
+    </Stack>
+  );
 }
 
 /**
@@ -713,14 +818,6 @@ function RuleFormModal({
                       w={200}
                     />
                   )}
-                {MESSAGE_ACTIONS.includes(act.type) && (
-                  <TextInput
-                    label="Mensaje / comentario"
-                    value={act.message}
-                    onChange={(e) => updateAction(ai, { message: e.currentTarget.value })}
-                    w={320}
-                  />
-                )}
                 {actions.length > 1 && (
                   <Tooltip label="Quitar acción" withArrow>
                     <ActionIcon
@@ -735,13 +832,25 @@ function RuleFormModal({
                 )}
               </Group>
 
-              {act.type === RuleActionType.ASSIGN_RESPONSIBLE && (
-                <TextInput
-                  label="Mensaje a notificar"
-                  placeholder="Se enviará al responsable por WhatsApp"
+              {MESSAGE_ACTIONS.includes(act.type) && (
+                <RuleMessageField
+                  label="Mensaje / comentario"
+                  placeholder="Ej: Se actualizó el campo {{updatedFields}} en {{activityName}}"
                   value={act.message}
-                  onChange={(e) => updateAction(ai, { message: e.currentTarget.value })}
-                  w={420}
+                  onChange={(v) => updateAction(ai, { message: v })}
+                  event={event}
+                  fields={fields}
+                />
+              )}
+
+              {act.type === RuleActionType.ASSIGN_RESPONSIBLE && (
+                <RuleMessageField
+                  label="Mensaje a notificar"
+                  placeholder="Se enviará a los responsables por el medio elegido (WhatsApp / correo)"
+                  value={act.message}
+                  onChange={(v) => updateAction(ai, { message: v })}
+                  event={event}
+                  fields={fields}
                 />
               )}
 

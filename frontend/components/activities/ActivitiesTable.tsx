@@ -41,9 +41,9 @@ import {
   COMPLIANCE_COLOR,
   COMPLIANCE_LABEL,
   computeComplianceLevel,
-  computeDeadline,
   deadlineRemainingLabel,
   getActivityFieldValue,
+  nextStatusAlert,
   statusColor,
   statusName,
 } from './activities.helpers';
@@ -128,7 +128,7 @@ export function ActivitiesTable({
       },
       {
         key: 'scheduledDate',
-        label: 'Programación',
+        label: 'Tiempo límite',
         sortable: true,
         filterable: false,
         render: (a) => <ProgramacionCell activity={a} project={project} filter={filter} />,
@@ -525,7 +525,10 @@ export function ActivitiesTable({
   );
 }
 
-/** Celda de programación: fecha límite + semáforo de cumplimiento. */
+/**
+ * Celda de tiempo límite: fecha límite + semáforo, derivados del estado pendiente
+ * más próximo a vencer (cumplimiento por estado). Muestra hacia qué estado corre.
+ */
 function ProgramacionCell({
   activity,
   project,
@@ -535,10 +538,10 @@ function ProgramacionCell({
   project: Project;
   filter: FilterApi;
 }) {
-  const deadline = computeDeadline(activity, project);
+  const next = nextStatusAlert(activity, project);
   const level = computeComplianceLevel(activity, project, filter.statusMap);
 
-  if (!deadline) return <span>—</span>;
+  if (!next) return <span>—</span>;
 
   return (
     <Group gap={6} wrap="nowrap">
@@ -548,10 +551,10 @@ function ProgramacionCell({
         </Tooltip>
       )}
       <div>
-        <Text size="sm">{deadline.toLocaleDateString('es-CO')}</Text>
-        {level && (
-          <Text size="xs" c="dimmed">{deadlineRemainingLabel(deadline)}</Text>
-        )}
+        <Text size="sm">{next.deadline.toLocaleDateString('es-CO')}</Text>
+        <Text size="xs" c="dimmed">
+          {next.statusName} · {deadlineRemainingLabel(next.deadline)}
+        </Text>
       </div>
     </Group>
   );

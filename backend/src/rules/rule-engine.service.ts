@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   Activity,
   CustomFieldType,
@@ -17,6 +18,11 @@ import {
 import { FirebaseService } from '../firebase/firebase.service';
 import { docToEntity } from '../firebase/firestore.helpers';
 import { evaluateConditions } from '../common/rule-evaluation';
+import {
+  ActivityVarOptions,
+  buildActivityVars,
+  interpolate,
+} from '../common/template-vars';
 import { ActivityHistoryService } from '../activity-history/activity-history.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { WhatsappCloudApiService } from '../whatsapp/whatsapp-cloud-api.service';
@@ -52,27 +58,22 @@ export class RuleEngineService {
     private readonly cloudApi: WhatsappCloudApiService,
     private readonly projects: ProjectsService,
     private readonly notifications: NotificationsService,
+    private readonly config: ConfigService,
   ) {}
 
   private get activities() {
     return this.firebase.firestore.collection(FirestoreCollections.ACTIVITIES);
   }
 
-  /** Indica si la organizacion tiene habilitada la funcionalidad de triggers. */
-  private async triggersEnabled(organizationId: string): Promise<boolean> {
-    const org = docToEntity<Organization>(
+  private async loadOrganization(
+    organizationId: string,
+  ): Promise<Organization | null> {
+    return docToEntity<Organization>(
       await this.firebase.firestore
         .collection(FirestoreCollections.ORGANIZATIONS)
         .doc(organizationId)
         .get(),
     );
-    if (org && org.enabledFeatures?.triggersEnabled === false) {
-      this.logger.debug(
-        `Triggers deshabilitados para la organizacion ${organizationId}; reglas omitidas.`,
-      );
-      return false;
-    }
-    return true;
   }
 
   /**
@@ -95,9 +96,35 @@ export class RuleEngineService {
   ): Promise<Activity> {
     // Gate de funcionalidad: si el SUPER_ADMIN no habilito "triggers" para la
     // organizacion, no se evalua ninguna regla (la actividad pasa sin cambios).
-    if (!(await this.triggersEnabled(activity.organizationId))) {
+    const organization = await this.loadOrganization(activity.organizationId);
+    if (organization?.enabledFeatures?.triggersEnabled === false) {
+      this.logger.debug(
+        `Triggers deshabilitados para la organizacion ${activity.organizationId}; reglas omitidas.`,
+      );
       return activity;
     }
+
+    // Variables comunes a todas las acciones de este evento, para interpolar los
+    // mensajes de notificacion (actividad, estado, campos, y contexto del evento:
+    // estado origen/destino o campos actualizados).
+    const statusNameOf = (id?: string) =>
+      id ? project.statuses.find((s) => s.id === id)?.name ?? '' : '';
+    const varOpts: ActivityVarOptions = {
+      organizationName: organization?.name,
+      frontendOrigin: this.config.get<string>('FRONTEND_ORIGIN'),
+      fromStatusName: transition ? statusNameOf(transition.fromStatusId) : undefined,
+      toStatusName: transition ? statusNameOf(transition.toStatusId) : undefined,
+      updatedFieldLabels: changedFieldKeys
+        ? changedFieldKeys
+            .map(
+              (k) =>
+                (project.customFields ?? []).find(
+                  (f) => f.key === k && !f.isArchived,
+                )?.label,
+            )
+            .filter((label): label is string => Boolean(label))
+        : undefined,
+    };
 
     const rules = (project.rules ?? []).filter(
       (r) => r.isActive && r.event === event,
@@ -132,6 +159,7 @@ export class RuleEngineService {
           current,
           ctx,
           project,
+          varOpts,
         );
       }
     }
@@ -198,6 +226,7 @@ export class RuleEngineService {
     activity: Activity,
     ctx: RuleContext,
     project: Project,
+    varOpts: ActivityVarOptions,
   ): Promise<Activity> {
     switch (type) {
       case RuleActionType.REGISTER_HISTORY_EVENT:
@@ -209,8 +238,12 @@ export class RuleEngineService {
           newStatusId: activity.statusId,
           changedBy: ctx.actorId,
           changedByRole: ctx.actorRole,
-          comment:
-            (payload.message as string) ?? `Trigger: ${rule.name}`,
+          comment: payload.message
+            ? interpolate(
+                payload.message as string,
+                buildActivityVars(activity, project, varOpts),
+              )
+            : `Trigger: ${rule.name}`,
         });
         return activity;
 
@@ -236,11 +269,18 @@ export class RuleEngineService {
         // Notifica a los responsables recien asignados por la regla (best effort).
         // El canal lo elige la regla (WhatsApp / Correo / Ambos); si no se
         // configuro, `notifyResponsibleAssigned` cae a la plantilla / WhatsApp.
+        // El mensaje propio de la regla (con variables) reemplaza a la plantilla
+        // si se escribio; las variables del evento permiten textos dinamicos.
         await this.notifications.notifyResponsibleAssigned({
           activity: next,
           project,
           responsibleUserIds: toAdd,
           channel: payload.notificationChannel as NotificationChannel | undefined,
+          messageOverride:
+            typeof payload.message === 'string' ? payload.message : undefined,
+          fromStatusName: varOpts.fromStatusName,
+          toStatusName: varOpts.toStatusName,
+          updatedFieldLabels: varOpts.updatedFieldLabels,
         });
         return next;
       }
@@ -307,13 +347,19 @@ export class RuleEngineService {
 
       case RuleActionType.SEND_WHATSAPP:
       case RuleActionType.REQUEST_HOST_INFORMATION: {
-        const message = payload.message as string | undefined;
-        if (!message) {
+        const rawMessage = payload.message as string | undefined;
+        if (!rawMessage) {
           this.logger.debug(
             `Accion WhatsApp de la regla "${rule.name}" sin mensaje; omitida.`,
           );
           return activity;
         }
+        // Reemplaza las variables de la actividad/evento ({{activityName}},
+        // {{statusName}}, {{toStatusName}}, {{updatedFields}}, campos, etc.).
+        const message = interpolate(
+          rawMessage,
+          buildActivityVars(activity, project, varOpts),
+        );
         const recipients = await this.resolveRecipients(payload, activity);
         if (recipients.length === 0) {
           this.logger.debug(

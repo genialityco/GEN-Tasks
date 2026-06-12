@@ -47,19 +47,27 @@ export function countBySubTab(activities: Activity[], statusMap: Map<string, Pro
 const MS_PER_DAY = 86_400_000;
 
 /**
- * Fecha limite (deadline) de una actividad: su `scheduledDate` (programacion)
- * si existe; si no, `createdAt + defaultDurationDays` cuando el semaforo esta
- * habilitado y define una duracion por defecto. `null` si no hay deadline.
+ * Fecha limite (deadline) de una actividad: el plazo del estado pendiente mas
+ * proximo a vencer entre las alertas de cumplimiento por estado activas (el
+ * "tiempo mas corto"). Es la programacion de la actividad. `null` si el semaforo
+ * esta deshabilitado o no quedan estados pendientes con alerta.
  */
 export function computeDeadline(activity: Activity, project: Project): Date | null {
-  if (activity.scheduledDate) return new Date(activity.scheduledDate);
-  const c = project.compliance;
-  if (c?.enabled && c.defaultDurationDays != null) {
-    const d = new Date(activity.createdAt);
-    d.setDate(d.getDate() + c.defaultDurationDays);
-    return d;
-  }
-  return null;
+  return nextStatusAlert(activity, project)?.deadline ?? null;
+}
+
+/**
+ * Alerta de cumplimiento por estado mas urgente de una actividad: el estado
+ * pendiente que vence primero (el "tiempo mas corto"), o `null` si no hay
+ * ninguno. Origen de la fecha limite / programacion de la actividad.
+ */
+export function nextStatusAlert(
+  activity: Activity,
+  project: Project,
+  now: Date = new Date(),
+): StatusAlertCountdown | null {
+  const statusMap = buildStatusMap(project);
+  return computeStatusAlertCountdowns(activity, project, statusMap, now)[0] ?? null;
 }
 
 /** Dias enteros restantes hasta la fecha limite (negativo si esta vencida). */
@@ -186,7 +194,9 @@ export function getActivityFieldValue(activity: Activity, project: Project, key:
     case 'createdAt':
       return activity.createdAt ?? '';
     case 'scheduledDate':
-      return activity.scheduledDate ?? '';
+      // La "programacion" ahora es la fecha limite derivada del estado pendiente
+      // mas proximo; se usa su ISO para ordenar/filtrar la columna.
+      return computeDeadline(activity, project)?.toISOString() ?? '';
     default: {
       // Campos personalizados con prefijo `cf_`.
       if (key.startsWith('cf_')) {

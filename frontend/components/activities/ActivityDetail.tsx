@@ -10,7 +10,6 @@ import {
   Text,
   Paper,
   Button,
-  TextInput,
   Timeline,
   Collapse,
   ActionIcon,
@@ -150,40 +149,19 @@ export function ActivityDetail({
   );
   const [savingResponsibles, setSavingResponsibles] = useState(false);
 
-  // Programacion (fecha limite) + semaforo.
+  // Fecha limite (semaforo) derivada del cumplimiento por estado: el estado
+  // pendiente mas proximo a vencer. `statusAlertCountdowns` viene ordenado por
+  // fecha limite ascendente, asi que el primero (`nextAlert`) es el "tiempo mas
+  // corto" y hace de programacion/fecha limite de la actividad.
   const statusMap = buildStatusMap(project);
   const deadline = computeDeadline(activity, project);
   const complianceLevel = computeComplianceLevel(activity, project, statusMap);
-  // Tiempo restante para alcanzar los estados con alerta de cumplimiento activa.
   const statusAlertCountdowns = computeStatusAlertCountdowns(
     activity,
     project,
     statusMap,
   );
-  const [editingSchedule, setEditingSchedule] = useState(false);
-  const [scheduleValue, setScheduleValue] = useState(
-    activity.scheduledDate ? activity.scheduledDate.slice(0, 10) : "",
-  );
-  const [savingSchedule, setSavingSchedule] = useState(false);
-
-  async function saveSchedule(dateStr: string) {
-    setSavingSchedule(true);
-    try {
-      const updated = await activitiesApi.update(activity.id, {
-        scheduledDate: dateStr ? new Date(dateStr).toISOString() : undefined,
-      });
-      setActivity(updated);
-      setScheduleValue(
-        updated.scheduledDate ? updated.scheduledDate.slice(0, 10) : "",
-      );
-      setEditingSchedule(false);
-      pushToast("Programación actualizada.");
-    } catch (err) {
-      pushError((err as Error).message);
-    } finally {
-      setSavingSchedule(false);
-    }
-  }
+  const nextAlert = statusAlertCountdowns[0] ?? null;
 
   const memberLabel = (userId: string) => {
     const m = members?.find((x) => x.userId === userId);
@@ -689,106 +667,38 @@ export function ActivityDetail({
             <Text>{new Date(activity.createdAt).toLocaleString("es-CO")}</Text>
           </Stack>
 
-          {/* Programación */}
+          {/* Tiempo límite (derivado del cumplimiento por estado): el estado
+              pendiente que vence primero —el plazo más corto— hace de fecha
+              límite y semáforo. Debajo se listan los demás estados pendientes. */}
           <Stack gap={4}>
-            <Group justify="space-between" align="center" wrap="nowrap">
-              <Text fw={700} size="sm" c="dimmed">
-                Programación
-              </Text>
-              {editingSchedule ? (
-                <Group gap="xs" wrap="nowrap">
-                  <Tooltip label="Guardar" withArrow>
-                    <ActionIcon
-                      color="green"
-                      variant="light"
-                      loading={savingSchedule}
-                      onClick={() => saveSchedule(scheduleValue)}
-                    >
-                      <IconCheck size={16} />
-                    </ActionIcon>
-                  </Tooltip>
-                  <Tooltip label="Cancelar" withArrow>
-                    <ActionIcon
-                      color="gray"
-                      variant="light"
-                      onClick={() => {
-                        setScheduleValue(
-                          activity.scheduledDate
-                            ? activity.scheduledDate.slice(0, 10)
-                            : "",
-                        );
-                        setEditingSchedule(false);
-                      }}
-                    >
-                      <IconX size={16} />
-                    </ActionIcon>
-                  </Tooltip>
-                </Group>
-              ) : (
-                <Group gap="xs" wrap="nowrap">
-                  <Tooltip label="Editar programación" withArrow>
-                    <ActionIcon
-                      variant="subtle"
-                      color="blue"
-                      onClick={() => setEditingSchedule(true)}
-                    >
-                      <IconPencil size={16} />
-                    </ActionIcon>
-                  </Tooltip>
-                  {activity.scheduledDate && (
-                    <Tooltip label="Quitar fecha" withArrow>
-                      <ActionIcon
-                        variant="subtle"
-                        color="red"
-                        loading={savingSchedule}
-                        onClick={() => saveSchedule("")}
-                      >
-                        <IconTrash size={16} />
-                      </ActionIcon>
-                    </Tooltip>
-                  )}
-                </Group>
+            <Text fw={700} size="sm" c="dimmed">
+              {nextAlert
+                ? `Tiempo límite para alcanzar estado: ${nextAlert.statusName}`
+                : "Tiempo límite para alcanzar estado"}
+            </Text>
+            <Group gap={6} wrap="nowrap">
+              {complianceLevel && (
+                <Tooltip label={COMPLIANCE_LABEL[complianceLevel]} withArrow>
+                  <IconCircleFilled
+                    size={12}
+                    color={COMPLIANCE_COLOR[complianceLevel]}
+                  />
+                </Tooltip>
               )}
-            </Group>
-            {editingSchedule ? (
-              <TextInput
-                type="date"
-                value={scheduleValue}
-                onChange={(e) => setScheduleValue(e.currentTarget.value)}
-                disabled={savingSchedule}
-              />
-            ) : (
-              <Group gap={6} wrap="nowrap">
-                {complianceLevel && (
-                  <Tooltip label={COMPLIANCE_LABEL[complianceLevel]} withArrow>
-                    <IconCircleFilled
-                      size={12}
-                      color={COMPLIANCE_COLOR[complianceLevel]}
-                    />
-                  </Tooltip>
+              <Text>
+                {deadline ? deadline.toLocaleDateString("es-CO") : "—"}
+                {deadline && (
+                  <Text span size="sm" c="dimmed">
+                    {" "}
+                    · {deadlineRemainingLabel(deadline)}
+                  </Text>
                 )}
-                <Text>
-                  {deadline ? deadline.toLocaleDateString("es-CO") : "—"}
-                  {deadline && complianceLevel && (
-                    <Text span size="sm" c="dimmed">
-                      {" "}
-                      · {deadlineRemainingLabel(deadline)}
-                    </Text>
-                  )}
-                </Text>
-              </Group>
-            )}
-          </Stack>
-
-          {/* Cumplimiento por estado (SLA): tiempo restante para alcanzar los
-              estados que tienen una alerta de cumplimiento activa. */}
-          {statusAlertCountdowns.length > 0 && (
-            <Stack gap={4}>
-              <Text fw={700} size="sm" c="dimmed">
-                Cumplimiento por estado
               </Text>
-              <Stack gap={6}>
-                {statusAlertCountdowns.map((c) => (
+            </Group>
+
+            {statusAlertCountdowns.length > 1 && (
+              <Stack gap={6} mt={4}>
+                {statusAlertCountdowns.slice(1).map((c) => (
                   <Group key={c.statusId} gap={6} wrap="nowrap">
                     <IconCircleFilled
                       size={12}
@@ -808,8 +718,8 @@ export function ActivityDetail({
                   </Group>
                 ))}
               </Stack>
-            </Stack>
-          )}
+            )}
+          </Stack>
 
           {/* Responsables */}
           <Stack gap={4}>
