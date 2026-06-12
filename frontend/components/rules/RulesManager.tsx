@@ -10,12 +10,12 @@ import {
   Checkbox,
   Button,
   ActionIcon,
-  Badge,
   Alert,
   Tooltip,
-  Divider,
+  Modal,
+  MultiSelect,
 } from '@mantine/core';
-import { IconTrash, IconPlus } from '@tabler/icons-react';
+import { IconTrash, IconPlus, IconPencil } from '@tabler/icons-react';
 import {
   ConditionOperator,
   CustomFieldType,
@@ -26,11 +26,15 @@ import {
   UserRole,
   WhatsappRecipientType,
   type ActivityCustomField,
+  type OrganizationMember,
+  type ProjectRule,
   type ProjectStatus,
+  type RuleAction,
 } from '@gen-task/shared';
 import { rulesApi } from '../../services/api/rules.api';
 import { organizationsApi } from '../../services/api/organizations.api';
 import { useAsync } from '../../hooks/useAsync';
+import { useToast } from '../toast/ToastProvider';
 import {
   ConditionBuilder,
   customFieldOptions,
@@ -115,7 +119,9 @@ interface ActionDraft {
   message: string;
   /** Estado destino (CHANGE_STATUS). */
   statusId: string;
-  /** Usuario a notificar/asignar (ASSIGN_RESPONSIBLE, o destinatario MEMBER de WhatsApp). */
+  /** Usuarios a notificar/asignar (ASSIGN_RESPONSIBLE; admite varios). */
+  responsibleIds: string[];
+  /** Destinatario MEMBER de WhatsApp (uno solo). */
   responsibleId: string;
   /** Tipo de destinatario (SEND_WHATSAPP / REQUEST_HOST_INFORMATION). */
   recipientType: WhatsappRecipientType;
@@ -132,12 +138,17 @@ function emptyActionDraft(): ActionDraft {
     type: RuleActionType.REGISTER_HISTORY_EVENT,
     message: '',
     statusId: '',
+    responsibleIds: [],
     responsibleId: '',
     recipientType: WhatsappRecipientType.HOST,
     recipientPhone: '',
     notificationChannel: NotificationChannel.WHATSAPP,
     cfDrafts: [emptyFieldDraft()],
   };
+}
+
+function emptyCondition(): ConditionDraft {
+  return { fieldKey: '', operator: ConditionOperator.EQUALS, value: '' };
 }
 
 /** Convierte un borrador de accion al formato que espera el backend ({ type, payload }). */
@@ -162,8 +173,8 @@ function buildActionPayload(a: ActionDraft): {
     payload.statusId = a.statusId;
   }
   if (a.type === RuleActionType.ASSIGN_RESPONSIBLE) {
-    payload.responsibleId = a.responsibleId;
-    // Mensaje que se notificara al responsable asignado.
+    payload.responsibleIds = a.responsibleIds;
+    // Mensaje que se notificara a los responsables asignados.
     payload.message = a.message;
     // Canal de notificacion elegido en la regla (WhatsApp / Correo / Ambos).
     payload.notificationChannel = a.notificationChannel;
@@ -189,12 +200,59 @@ function buildActionPayload(a: ActionDraft): {
   return { type: a.type, payload };
 }
 
+/** Reconstruye un borrador de campo desde el payload guardado (CREATE_CUSTOM_FIELD). */
+function fieldToDraft(f: Record<string, unknown>): FieldDraft {
+  const options = Array.isArray(f.options)
+    ? (f.options as { label?: string; value?: string }[])
+    : [];
+  return {
+    label: typeof f.label === 'string' ? f.label : '',
+    type: (f.type as CustomFieldType) ?? CustomFieldType.TEXT,
+    required: Boolean(f.required),
+    optionsText: options
+      .map((o) => o.label ?? o.value ?? '')
+      .filter(Boolean)
+      .join(', '),
+  };
+}
+
+/** Reconstruye un borrador de accion desde una accion guardada (mapeo inverso de `buildActionPayload`). */
+function actionToDraft(a: RuleAction): ActionDraft {
+  const p = (a.payload ?? {}) as Record<string, unknown>;
+  const fields = Array.isArray(p.fields)
+    ? (p.fields as Record<string, unknown>[])
+    : [];
+  return {
+    ...emptyActionDraft(),
+    type: a.type,
+    message: typeof p.message === 'string' ? p.message : '',
+    statusId: typeof p.statusId === 'string' ? p.statusId : '',
+    // Notificar a (varios): formato actual `responsibleIds`, o el `responsibleId`
+    // unico de reglas antiguas.
+    responsibleIds: Array.isArray(p.responsibleIds)
+      ? (p.responsibleIds as string[])
+      : typeof p.responsibleId === 'string'
+        ? [p.responsibleId]
+        : [],
+    // Destinatario MEMBER de WhatsApp (uno solo).
+    responsibleId:
+      typeof p.recipientUserId === 'string' ? p.recipientUserId : '',
+    recipientType:
+      (p.recipientType as WhatsappRecipientType) ?? WhatsappRecipientType.HOST,
+    recipientPhone: typeof p.recipientPhone === 'string' ? p.recipientPhone : '',
+    notificationChannel:
+      (p.notificationChannel as NotificationChannel) ?? NotificationChannel.WHATSAPP,
+    cfDrafts: fields.length ? fields.map(fieldToDraft) : [emptyFieldDraft()],
+  };
+}
+
 /**
- * Seccion de automatizaciones (triggers) del proyecto. Crea reglas con un evento,
- * una condicion opcional sobre un campo y una accion. La evaluacion y ejecucion
- * la realiza el motor de reglas del backend al crear/cambiar estado. Se embebe
- * dentro de `ProjectRulesConfig` (no dibuja su propia tarjeta) y comparte el
- * editor de condiciones con las restricciones de estado.
+ * Seccion de automatizaciones (triggers) del proyecto. Lista las reglas existentes
+ * (con editar/eliminar) y abre un modal con el formulario para crear una nueva o
+ * editar una existente. La evaluacion y ejecucion la realiza el motor de reglas del
+ * backend al crear/cambiar estado. Se embebe dentro de `ProjectRulesConfig` (no
+ * dibuja su propia tarjeta) y comparte el editor de condiciones con las
+ * restricciones de estado.
  */
 export function RulesManager({
   projectId,
@@ -213,35 +271,146 @@ export function RulesManager({
     () => organizationsApi.members(organizationId),
     [organizationId],
   );
+  const toast = useToast();
+
+  // null = modal cerrado · 'new' = crear · ProjectRule = editar esa regla.
+  const [editTarget, setEditTarget] = useState<ProjectRule | 'new' | null>(null);
 
   /** Nombre legible de un estado por id (vacio si no se especifica). */
   const statusName = (id?: string) =>
     id ? statuses.find((s) => s.id === id)?.name ?? id : '';
 
-  const [name, setName] = useState('');
-  const [event, setEvent] = useState<RuleEvent>(RuleEvent.ON_STATUS_CHANGED);
-  // Una regla puede combinar varias condiciones (Y/O).
-  const emptyCondition = (): ConditionDraft => ({
-    fieldKey: '',
-    operator: ConditionOperator.EQUALS,
-    value: '',
-  });
-  const [conditions, setConditions] = useState<ConditionDraft[]>([emptyCondition()]);
-  const [conditionOperator, setConditionOperator] = useState<LogicalOperator>(
-    LogicalOperator.AND,
+  async function remove(ruleId: string) {
+    try {
+      await rulesApi.remove(projectId, ruleId);
+      toast.success('Automatización eliminada.');
+      reload();
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  }
+
+  return (
+    <Stack gap="sm">
+      <Stack gap={6}>
+        {rules?.map((r) => (
+          <Group
+            key={r.id}
+            justify="space-between"
+            wrap="nowrap"
+            gap="sm"
+            p="xs"
+            style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 6 }}
+          >
+            <Text size="sm">
+              <strong>{r.name}</strong>{' '}
+              <Text span size="sm" c="dimmed">
+                {EVENT_LABELS[r.event]}
+                {r.event === RuleEvent.ON_STATUS_CHANGED && (r.fromStatusId || r.toStatusId)
+                  ? ` (${statusName(r.fromStatusId) || 'cualquiera'} → ${statusName(r.toStatusId) || 'cualquiera'})`
+                  : ''}{' '}
+                · {r.actions.map((a) => ACTION_LABELS[a.type]).join(', ')}
+              </Text>
+            </Text>
+            <Group gap={4} wrap="nowrap">
+              <Tooltip label="Editar" withArrow>
+                <ActionIcon variant="subtle" onClick={() => setEditTarget(r)}>
+                  <IconPencil size={16} />
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label="Eliminar" withArrow>
+                <ActionIcon color="red" variant="subtle" onClick={() => remove(r.id)}>
+                  <IconTrash size={16} />
+                </ActionIcon>
+              </Tooltip>
+            </Group>
+          </Group>
+        ))}
+        {rules && rules.length === 0 && (
+          <Text size="sm" c="dimmed">Sin automatizaciones configuradas.</Text>
+        )}
+      </Stack>
+
+      <Button
+        leftSection={<IconPlus size={14} />}
+        onClick={() => setEditTarget('new')}
+        style={{ alignSelf: 'flex-start' }}
+      >
+        Nueva automatización
+      </Button>
+
+      {/* Se monta solo al abrir: asi el formulario siembra sus valores desde la
+          regla seleccionada en cada apertura (crear con null, o editar). */}
+      {editTarget !== null && (
+        <RuleFormModal
+          rule={editTarget === 'new' ? null : editTarget}
+          projectId={projectId}
+          members={members ?? []}
+          fields={fields}
+          statuses={statuses}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => {
+            setEditTarget(null);
+            reload();
+          }}
+        />
+      )}
+    </Stack>
   );
-  // Transicion opcional para el evento "Al cambiar de estado".
-  const [fromStatusId, setFromStatusId] = useState('');
-  const [toStatusId, setToStatusId] = useState('');
-  // Una regla puede ejecutar varias acciones; cada una se edita por separado.
-  const [actions, setActions] = useState<ActionDraft[]>([emptyActionDraft()]);
+}
+
+/**
+ * Modal con el formulario de una automatizacion. Sirve para crear (rule = null) y
+ * para editar (rule = la regla). Al montarse siembra su estado desde `rule`; el
+ * Modal de Mantine desmonta el contenido al cerrarse, asi que cada apertura arranca
+ * con los valores correctos.
+ */
+function RuleFormModal({
+  rule,
+  projectId,
+  members,
+  fields,
+  statuses,
+  onClose,
+  onSaved,
+}: {
+  rule: ProjectRule | null;
+  projectId: string;
+  members: OrganizationMember[];
+  fields: ActivityCustomField[];
+  statuses: ProjectStatus[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const isEdit = rule !== null;
+
+  const [name, setName] = useState(rule?.name ?? '');
+  const [event, setEvent] = useState<RuleEvent>(rule?.event ?? RuleEvent.ON_STATUS_CHANGED);
+  const [conditions, setConditions] = useState<ConditionDraft[]>(
+    rule && rule.conditions.length
+      ? rule.conditions.map((c) => ({
+          fieldKey: c.fieldKey,
+          operator: c.operator as ConditionOperator,
+          value: c.value == null ? '' : String(c.value),
+        }))
+      : [emptyCondition()],
+  );
+  const [conditionOperator, setConditionOperator] = useState<LogicalOperator>(
+    rule?.logicalOperator ?? LogicalOperator.AND,
+  );
+  const [fromStatusId, setFromStatusId] = useState(rule?.fromStatusId ?? '');
+  const [toStatusId, setToStatusId] = useState(rule?.toStatusId ?? '');
+  const [actions, setActions] = useState<ActionDraft[]>(
+    rule && rule.actions.length ? rule.actions.map(actionToDraft) : [emptyActionDraft()],
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const activeStatuses = statuses.filter((s) => !s.isArchived);
   const statusSelectData = activeStatuses.map((s) => ({ value: s.id, label: s.name }));
 
-  async function create(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
@@ -253,7 +422,7 @@ export function RulesManager({
           operator: c.operator,
           value: NEEDS_VALUE.includes(c.operator) ? c.value || undefined : undefined,
         }));
-      await rulesApi.create(projectId, {
+      const body = {
         name: name.trim(),
         event,
         conditions: builtConditions,
@@ -266,24 +435,22 @@ export function RulesManager({
               toStatusId: toStatusId || undefined,
             }
           : {}),
-      });
-      setName('');
-      setConditions([emptyCondition()]);
-      setConditionOperator(LogicalOperator.AND);
-      setFromStatusId('');
-      setToStatusId('');
-      setActions([emptyActionDraft()]);
-      reload();
+      };
+      if (isEdit && rule) {
+        await rulesApi.update(projectId, rule.id, body);
+        toast.success('Automatización actualizada.');
+      } else {
+        await rulesApi.create(projectId, body);
+        toast.success('Automatización creada.');
+      }
+      onSaved();
     } catch (err) {
-      setError((err as Error).message);
+      const message = (err as Error).message;
+      setError(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
-  }
-
-  async function remove(ruleId: string) {
-    await rulesApi.remove(projectId, ruleId);
-    reload();
   }
 
   // --- Condiciones ---
@@ -339,46 +506,17 @@ export function RulesManager({
   }
 
   return (
-    <Stack gap="sm">
-      {error && <Alert color="red">{error}</Alert>}
-
-      <Stack gap={6}>
-        {rules?.map((r) => (
-          <Group
-            key={r.id}
-            justify="space-between"
-            wrap="nowrap"
-            gap="sm"
-            p="xs"
-            style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 6 }}
-          >
-            <Text size="sm">
-              <strong>{r.name}</strong>{' '}
-              <Text span size="sm" c="dimmed">
-                {EVENT_LABELS[r.event]}
-                {r.event === RuleEvent.ON_STATUS_CHANGED && (r.fromStatusId || r.toStatusId)
-                  ? ` (${statusName(r.fromStatusId) || 'cualquiera'} → ${statusName(r.toStatusId) || 'cualquiera'})`
-                  : ''}{' '}
-                · {r.actions.map((a) => ACTION_LABELS[a.type]).join(', ')}
-              </Text>
-            </Text>
-            <Tooltip label="Eliminar" withArrow>
-              <ActionIcon color="red" variant="subtle" onClick={() => remove(r.id)}>
-                <IconTrash size={16} />
-              </ActionIcon>
-            </Tooltip>
-          </Group>
-        ))}
-        {rules && rules.length === 0 && (
-          <Text size="sm" c="dimmed">Sin automatizaciones configuradas.</Text>
-        )}
-      </Stack>
-
-      <Divider my="xs" variant="dashed" />
-
-      <Text size="sm" fw={600}>Nueva automatización</Text>
-      <form onSubmit={create}>
+    <Modal
+      opened
+      onClose={onClose}
+      title={isEdit ? 'Editar automatización' : 'Nueva automatización'}
+      centered
+      size="xl"
+    >
+      <form onSubmit={submit}>
         <Stack gap="sm">
+          {error && <Alert color="red">{error}</Alert>}
+
           <TextInput
             label="Nombre de la regla"
             placeholder="Ej: Notificar al finalizar"
@@ -507,17 +645,18 @@ export function RulesManager({
                 )}
                 {act.type === RuleActionType.ASSIGN_RESPONSIBLE && (
                   <>
-                    <Select
-                      label="Usuario a notificar"
-                      placeholder="Selecciona..."
-                      data={(members ?? []).map((m) => ({
+                    <MultiSelect
+                      label="Usuarios a notificar"
+                      placeholder={act.responsibleIds.length ? '' : 'Selecciona uno o varios...'}
+                      data={members.map((m) => ({
                         value: m.userId,
                         label: `${m.name} · ${m.role === UserRole.ADMIN ? 'Admin' : 'Gestor'}`,
                       }))}
-                      value={act.responsibleId || null}
-                      onChange={(v) => updateAction(ai, { responsibleId: v ?? '' })}
+                      value={act.responsibleIds}
+                      onChange={(v) => updateAction(ai, { responsibleIds: v })}
                       searchable
-                      w={260}
+                      clearable
+                      w={320}
                     />
                     <Select
                       label="Notificar por"
@@ -552,7 +691,7 @@ export function RulesManager({
                     <Select
                       label="Miembro"
                       placeholder="Selecciona..."
-                      data={(members ?? []).map((m) => ({
+                      data={members.map((m) => ({
                         value: m.userId,
                         label: `${m.name} · ${m.role === UserRole.ADMIN ? 'Admin' : 'Gestor'}`,
                       }))}
@@ -689,11 +828,16 @@ export function RulesManager({
             Agregar otra acción
           </Button>
 
-          <Button type="submit" loading={busy} style={{ alignSelf: 'flex-start' }}>
-            Crear automatización
-          </Button>
+          <Group justify="flex-end" gap="sm" mt="xs">
+            <Button variant="default" type="button" onClick={onClose} disabled={busy}>
+              Cancelar
+            </Button>
+            <Button type="submit" loading={busy}>
+              {isEdit ? 'Guardar cambios' : 'Crear automatización'}
+            </Button>
+          </Group>
         </Stack>
       </form>
-    </Stack>
+    </Modal>
   );
 }

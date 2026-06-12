@@ -215,22 +215,31 @@ export class RuleEngineService {
         return activity;
 
       case RuleActionType.ASSIGN_RESPONSIBLE: {
-        const responsibleId = payload.responsibleId as string | undefined;
-        if (!responsibleId) return activity;
-        if (activity.responsibleIds.includes(responsibleId)) return activity;
-        const responsibleIds = [...activity.responsibleIds, responsibleId];
+        // Admite uno o varios usuarios: `responsibleIds` (array, formato actual) o
+        // `responsibleId` (string, reglas creadas antes de permitir varios).
+        const requested = Array.isArray(payload.responsibleIds)
+          ? (payload.responsibleIds as string[])
+          : payload.responsibleId
+            ? [payload.responsibleId as string]
+            : [];
+        // Solo los que aun no son responsables (sin duplicar).
+        const toAdd = [...new Set(requested)].filter(
+          (id) => id && !activity.responsibleIds.includes(id),
+        );
+        if (toAdd.length === 0) return activity;
+        const responsibleIds = [...activity.responsibleIds, ...toAdd];
         await this.activities.doc(activity.id).update({
           responsibleIds,
           updatedAt: new Date().toISOString(),
         });
         const next = { ...activity, responsibleIds };
-        // Notifica al responsable recien asignado por la regla (best effort).
+        // Notifica a los responsables recien asignados por la regla (best effort).
         // El canal lo elige la regla (WhatsApp / Correo / Ambos); si no se
         // configuro, `notifyResponsibleAssigned` cae a la plantilla / WhatsApp.
         await this.notifications.notifyResponsibleAssigned({
           activity: next,
           project,
-          responsibleUserIds: [responsibleId],
+          responsibleUserIds: toAdd,
           channel: payload.notificationChannel as NotificationChannel | undefined,
         });
         return next;
