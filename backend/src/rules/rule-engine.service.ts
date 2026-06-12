@@ -160,6 +160,7 @@ export class RuleEngineService {
           ctx,
           project,
           varOpts,
+          organization?.enabledFeatures?.notificationsEnabled !== false,
         );
       }
     }
@@ -227,6 +228,7 @@ export class RuleEngineService {
     ctx: RuleContext,
     project: Project,
     varOpts: ActivityVarOptions,
+    notificationsEnabled: boolean,
   ): Promise<Activity> {
     switch (type) {
       case RuleActionType.REGISTER_HISTORY_EVENT:
@@ -347,6 +349,14 @@ export class RuleEngineService {
 
       case RuleActionType.SEND_WHATSAPP:
       case RuleActionType.REQUEST_HOST_INFORMATION: {
+        // Gate de notificaciones: si la organizacion las deshabilito, no se
+        // envia el WhatsApp de la regla.
+        if (!notificationsEnabled) {
+          this.logger.debug(
+            `Notificaciones deshabilitadas para la organizacion ${activity.organizationId}; accion WhatsApp de la regla "${rule.name}" omitida.`,
+          );
+          return activity;
+        }
         const rawMessage = payload.message as string | undefined;
         if (!rawMessage) {
           this.logger.debug(

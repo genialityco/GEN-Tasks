@@ -96,6 +96,16 @@ export class NotificationsService {
       ctx.activity.organizationId,
     );
 
+    // Gate de notificaciones: si el SUPER_ADMIN las deshabilito para la
+    // organizacion, no se envia nada (ni correo ni WhatsApp). Ausencia del flag
+    // = habilitado, para no romper organizaciones preexistentes.
+    if (organization?.enabledFeatures?.notificationsEnabled === false) {
+      this.logger.debug(
+        `Notificaciones deshabilitadas para la organizacion ${ctx.activity.organizationId}; asignacion de responsable omitida.`,
+      );
+      return;
+    }
+
     const templateDoc = await this.templates.getByKey(
       ctx.activity.organizationId,
       NotificationTemplateKey.RESPONSIBLE_ASSIGNED,

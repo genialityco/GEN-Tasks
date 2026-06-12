@@ -5,6 +5,7 @@ import {
   Activity,
   FirestoreCollections,
   Host,
+  Organization,
   Project,
   StatusComplianceAlert,
   StatusType,
@@ -84,6 +85,16 @@ export class ComplianceAlertsService {
       (a) => a.enabled,
     );
     if (alerts.length === 0) return;
+
+    // Gate de notificaciones: si la organizacion las tiene deshabilitadas, no se
+    // envia ninguna alerta de cumplimiento. Ausencia del flag = habilitado.
+    const organization = await this.loadOrganization(project.organizationId);
+    if (organization?.enabledFeatures?.notificationsEnabled === false) {
+      this.logger.debug(
+        `Notificaciones deshabilitadas para la organizacion ${project.organizationId}; alertas del proyecto ${project.id} omitidas.`,
+      );
+      return;
+    }
 
     const orderByStatusId = new Map(
       project.statuses.map((s) => [s.id, s.order]),
@@ -262,6 +273,17 @@ export class ComplianceAlertsService {
       await this.firebase.firestore
         .collection(FirestoreCollections.USERS)
         .doc(userId)
+        .get(),
+    );
+  }
+
+  private async loadOrganization(
+    organizationId: string,
+  ): Promise<Organization | null> {
+    return docToEntity<Organization>(
+      await this.firebase.firestore
+        .collection(FirestoreCollections.ORGANIZATIONS)
+        .doc(organizationId)
         .get(),
     );
   }

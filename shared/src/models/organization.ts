@@ -9,6 +9,13 @@ export interface OrganizationFeatures {
   triggersEnabled: boolean;
   fileUploadsEnabled: boolean;
   manualChatEnabled: boolean;
+  /**
+   * Notificaciones automaticas salientes (correo y WhatsApp). Si es `false`, no
+   * se envia ninguna notificacion: asignacion de responsable, alertas de
+   * cumplimiento (SLA) ni mensajes de la accion de regla "Enviar WhatsApp". No
+   * afecta al bot/chat interactivo de WhatsApp.
+   */
+  notificationsEnabled: boolean;
 }
 
 /** Configuracion de WhatsApp a nivel de organizacion. */
@@ -46,4 +53,5 @@ export const DEFAULT_ORGANIZATION_FEATURES: OrganizationFeatures = {
   triggersEnabled: false,
   fileUploadsEnabled: true,
   manualChatEnabled: true,
+  notificationsEnabled: true,
 };

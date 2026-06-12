@@ -15,6 +15,7 @@ export class OrganizationFeaturesDto {
   @IsOptional() @IsBoolean() triggersEnabled?: boolean;
   @IsOptional() @IsBoolean() fileUploadsEnabled?: boolean;
   @IsOptional() @IsBoolean() manualChatEnabled?: boolean;
+  @IsOptional() @IsBoolean() notificationsEnabled?: boolean;
 }
 
 export class UpdateFeaturesDto {

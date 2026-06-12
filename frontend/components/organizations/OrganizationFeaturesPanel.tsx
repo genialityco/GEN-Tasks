@@ -12,6 +12,7 @@ const FEATURE_LABELS: Record<keyof OrganizationFeatures, string> = {
   triggersEnabled: 'Triggers / reglas',
   fileUploadsEnabled: 'Subida de archivos',
   manualChatEnabled: 'Chat manual',
+  notificationsEnabled: 'Notificaciones (correo y WhatsApp)',
 };
 
 /** Activa/desactiva funcionalidades por organizacion (solo SUPER_ADMIN). */
