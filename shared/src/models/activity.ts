@@ -1,5 +1,5 @@
 import { IsoDate } from './common';
-import { ActivitySource, UserRole } from '../enums';
+import { ActivitySource, NotificationChannel, UserRole } from '../enums';
 
 /**
  * Archivo adjunto a un campo personalizado de tipo FILE / IMAGE / VIDEO. Se
@@ -54,6 +54,7 @@ export interface Activity {
 export enum ActivityHistoryType {
   STATUS_CHANGE = 'STATUS_CHANGE',
   FIELD_UPDATE = 'FIELD_UPDATE',
+  NOTIFICATION_SENT = 'NOTIFICATION_SENT',
 }
 
 /** Detalle del cambio de un campo personalizado (para el historial). */
@@ -86,5 +87,11 @@ export interface ActivityStatusHistory {
   changedBy: string;
   changedByRole: UserRole;
   comment?: string;
+  /** Canal usado (solo para entradas NOTIFICATION_SENT). */
+  notificationChannel?: NotificationChannel;
+  /** Descripcion legible del destinatario (solo para NOTIFICATION_SENT). */
+  notificationRecipient?: string;
+  /** IDs de usuarios notificados (solo para NOTIFICATION_SENT con destinatarios internos). */
+  notificationRecipientIds?: string[];
   createdAt: IsoDate;
 }

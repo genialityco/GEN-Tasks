@@ -15,6 +15,7 @@ import {
   ActionIcon,
   Tooltip,
   MultiSelect,
+  Tabs,
 } from "@mantine/core";
 import {
   IconPencil,
@@ -28,6 +29,7 @@ import {
   ActivityHistoryType,
   ComplianceLevel,
   isFieldVisibleForActivity,
+  NotificationChannel,
   StatusType,
   UserRole,
   type Activity,
@@ -78,6 +80,7 @@ export function ActivityDetail({
   const [loadingStatusId, setLoadingStatusId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [historyTab, setHistoryTab] = useState<string>("activity");
   const [editingFields, setEditingFields] = useState<Set<string>>(new Set());
 
   // Toasts efimeros (esquina superior derecha): exito o error.
@@ -413,59 +416,143 @@ export function ActivityDetail({
           <Text>{historyExpanded ? "▼" : "▶"}</Text>
         </Button>
         <Collapse in={historyExpanded}>
-          {!history || history.length === 0 ? (
-            <Text c="dimmed" size="sm">
-              Sin registros aún.
-            </Text>
-          ) : (
-            <Timeline
-              active={history.length - 1}
-              bulletSize={20}
-              lineWidth={2}
-              mt="xs"
-            >
-              {history.map((h) => {
-                const isFieldUpdate =
-                  h.type === ActivityHistoryType.FIELD_UPDATE;
-                return (
-                  <Timeline.Item
-                    key={h.id}
-                    title={
-                      isFieldUpdate ? (
-                        <Badge color="grape">Campos actualizados</Badge>
-                      ) : (
-                        <Badge
-                          color={
-                            h.newStatusId
-                              ? statusColor(project, h.newStatusId)
-                              : "gray"
+          <Tabs value={historyTab} onChange={(v) => v && setHistoryTab(v)} mt="xs">
+            <Tabs.List>
+              <Tabs.Tab value="activity">Historial</Tabs.Tab>
+              <Tabs.Tab value="notifications">
+                Notificaciones
+                {history &&
+                  history.filter(
+                    (h) => h.type === ActivityHistoryType.NOTIFICATION_SENT,
+                  ).length > 0 && (
+                    <Badge size="xs" ml={6} circle>
+                      {
+                        history.filter(
+                          (h) => h.type === ActivityHistoryType.NOTIFICATION_SENT,
+                        ).length
+                      }
+                    </Badge>
+                  )}
+              </Tabs.Tab>
+            </Tabs.List>
+
+            <Tabs.Panel value="activity" pt="xs">
+              {(() => {
+                const activityHistory = history?.filter(
+                  (h) => h.type !== ActivityHistoryType.NOTIFICATION_SENT,
+                );
+                return !activityHistory || activityHistory.length === 0 ? (
+                  <Text c="dimmed" size="sm">
+                    Sin registros aún.
+                  </Text>
+                ) : (
+                  <Timeline
+                    active={activityHistory.length - 1}
+                    bulletSize={20}
+                    lineWidth={2}
+                  >
+                    {activityHistory.map((h) => {
+                      const isFieldUpdate =
+                        h.type === ActivityHistoryType.FIELD_UPDATE;
+                      return (
+                        <Timeline.Item
+                          key={h.id}
+                          title={
+                            isFieldUpdate ? (
+                              <Badge color="grape">Campos actualizados</Badge>
+                            ) : (
+                              <Badge
+                                color={
+                                  h.newStatusId
+                                    ? statusColor(project, h.newStatusId)
+                                    : "gray"
+                                }
+                              >
+                                {h.previousStatusId
+                                  ? `Actualización de estado: (${statusName(project, h.previousStatusId)} → ${statusName(project, h.newStatusId ?? "")})`
+                                  : `Creación de actividad: (${statusName(project, h.newStatusId ?? "")})`}
+                              </Badge>
+                            )
                           }
                         >
-                          {h.previousStatusId
-                            ? `Actualización de estado: (${statusName(project, h.previousStatusId)} → ${statusName(project, h.newStatusId ?? "")})`
-                            : `Creación de actividad: (${statusName(project, h.newStatusId ?? "")})`}
-                        </Badge>
-                      )
-                    }
-                  >
-                    <Text size="sm" c="dimmed">
-                      {h.changedByRole} ·{" "}
-                      {new Date(h.createdAt).toLocaleString("es-CO")}
-                    </Text>
-                    {isFieldUpdate &&
-                      h.fieldChanges?.map((c, i) => (
-                        <Text size="sm" key={`${c.fieldKey}-${i}`}>
-                          <strong>{c.fieldLabel}:</strong>{" "}
-                          {formatValue(c.previousValue)} →{" "}
-                          {formatValue(c.newValue)}
-                        </Text>
-                      ))}
-                    {h.comment && <Text size="sm">{h.comment}</Text>}
-                  </Timeline.Item>
+                          <Text size="sm" c="dimmed">
+                            {h.changedByRole} ·{" "}
+                            {new Date(h.createdAt).toLocaleString("es-CO")}
+                          </Text>
+                          {isFieldUpdate &&
+                            h.fieldChanges?.map((c, i) => (
+                              <Text size="sm" key={`${c.fieldKey}-${i}`}>
+                                <strong>{c.fieldLabel}:</strong>{" "}
+                                {formatValue(c.previousValue)} →{" "}
+                                {formatValue(c.newValue)}
+                              </Text>
+                            ))}
+                          {h.comment && <Text size="sm">{h.comment}</Text>}
+                        </Timeline.Item>
+                      );
+                    })}
+                  </Timeline>
                 );
-              })}
-            </Timeline>
-          )}
+              })()}
+            </Tabs.Panel>
+
+            <Tabs.Panel value="notifications" pt="xs">
+              {(() => {
+                const notifHistory = history?.filter(
+                  (h) => h.type === ActivityHistoryType.NOTIFICATION_SENT,
+                );
+                return !notifHistory || notifHistory.length === 0 ? (
+                  <Text c="dimmed" size="sm">
+                    Sin notificaciones registradas.
+                  </Text>
+                ) : (
+                  <Timeline
+                    active={notifHistory.length - 1}
+                    bulletSize={20}
+                    lineWidth={2}
+                  >
+                    {notifHistory.map((h) => {
+                      const ruleName = h.comment?.replace(/^Notificación:\s*/, "") ?? "—";
+                      const channelLabel =
+                        h.notificationChannel === NotificationChannel.EMAIL
+                          ? "Correo"
+                          : h.notificationChannel === NotificationChannel.BOTH
+                            ? "WhatsApp y Correo"
+                            : "WhatsApp";
+                      const recipientLabel = h.notificationRecipientIds?.length
+                        ? h.notificationRecipientIds
+                            .map(memberLabel)
+                            .join(", ")
+                        : (h.notificationRecipient ?? "—");
+                      return (
+                        <Timeline.Item
+                          key={h.id}
+                          title={
+                            <Badge color="teal">Notificación enviada</Badge>
+                          }
+                        >
+                          <Text size="sm" fw={600}>
+                            Regla: {ruleName}
+                          </Text>
+                          <Text size="sm">
+                            Notificado a:{" "}
+                            <strong>{recipientLabel}</strong>
+                          </Text>
+                          <Text size="sm">
+                            Canal: <strong>{channelLabel}</strong>
+                          </Text>
+                          <Text size="sm" c="dimmed">
+                            {h.changedByRole} ·{" "}
+                            {new Date(h.createdAt).toLocaleString("es-CO")}
+                          </Text>
+                        </Timeline.Item>
+                      );
+                    })}
+                  </Timeline>
+                );
+              })()}
+            </Tabs.Panel>
+          </Tabs>
         </Collapse>
       </Stack>
 
@@ -826,6 +913,8 @@ function formatValue(v: unknown): string {
 
 /** Resumen corto de una entrada de historial (para el encabezado contraido). */
 function historyLabel(project: Project, h: ActivityStatusHistory): string {
+  if (h.type === ActivityHistoryType.NOTIFICATION_SENT)
+    return h.comment?.replace(/^Notificación:\s*/, "Notificación: ") ?? "Notificación enviada";
   if (h.type === ActivityHistoryType.FIELD_UPDATE) return "Campos actualizados";
   if (h.previousStatusId) {
     return `Actualización de estado: (${statusName(project, h.previousStatusId)} → ${statusName(project, h.newStatusId ?? "")})`;

@@ -303,6 +303,15 @@ export class UsersService {
         isArchived: false,
         updatedAt: now,
       });
+      // Si la membresia existente se promueve a ADMIN, refleja el userId en
+      // organization.admins (el array no se actualizo al crear la membresia
+      // original porque el rol era diferente).
+      if (dto.role === UserRole.ADMIN) {
+        await this.firebase.firestore
+          .collection(FirestoreCollections.ORGANIZATIONS)
+          .doc(dto.organizationId)
+          .update({ admins: this.firebase.fieldValue.arrayUnion(dto.userId) });
+      }
       const updated = docToEntity<OrganizationMembership>(await ref.get());
       if (!updated) throw new BadRequestException('No se pudo actualizar la membresia.');
       return updated;

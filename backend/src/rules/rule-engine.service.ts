@@ -284,6 +284,18 @@ export class RuleEngineService {
           toStatusName: varOpts.toStatusName,
           updatedFieldLabels: varOpts.updatedFieldLabels,
         });
+        await this.history.recordNotification({
+          activityId: activity.id,
+          organizationId: activity.organizationId,
+          projectId: activity.projectId,
+          changedBy: ctx.actorId,
+          changedByRole: ctx.actorRole,
+          ruleName: rule.name,
+          notificationChannel:
+            (payload.notificationChannel as NotificationChannel) ??
+            NotificationChannel.WHATSAPP,
+          notificationRecipientIds: toAdd,
+        });
         return next;
       }
 
@@ -391,6 +403,21 @@ export class RuleEngineService {
             await this.cloudApi.sendText({ to: r.phone, body: message });
           }
         }
+        await this.history.recordNotification({
+          activityId: activity.id,
+          organizationId: activity.organizationId,
+          projectId: activity.projectId,
+          changedBy: ctx.actorId,
+          changedByRole: ctx.actorRole,
+          ruleName: rule.name,
+          notificationChannel: NotificationChannel.WHATSAPP,
+          notificationRecipient: this.resolveRecipientLabel(payload),
+          notificationRecipientIds:
+            (payload.recipientType as WhatsappRecipientType) ===
+            WhatsappRecipientType.MEMBER
+              ? [payload.recipientUserId as string].filter(Boolean)
+              : undefined,
+        });
         return activity;
       }
 
@@ -494,6 +521,25 @@ export class RuleEngineService {
         .get(),
     );
     return host?.phone ?? null;
+  }
+
+  /** Etiqueta legible del destinatario de una accion WhatsApp (para el historial). */
+  private resolveRecipientLabel(payload: Record<string, unknown>): string {
+    const type =
+      (payload.recipientType as WhatsappRecipientType | undefined) ??
+      WhatsappRecipientType.HOST;
+    switch (type) {
+      case WhatsappRecipientType.HOST:
+        return 'Host de la actividad';
+      case WhatsappRecipientType.RESPONSIBLES:
+        return 'Responsables de la actividad';
+      case WhatsappRecipientType.PHONE:
+        return `Teléfono: ${payload.recipientPhone ?? '—'}`;
+      case WhatsappRecipientType.MEMBER:
+        return 'Miembro de la organización';
+      default:
+        return '—';
+    }
   }
 
   /** Carga un usuario por id (null si no existe o no se proporciona id). */

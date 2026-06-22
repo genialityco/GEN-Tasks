@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useMemo, useState } from 'react';
 import {
   Stack,
   Group,
@@ -395,6 +395,51 @@ export function RulesManager({
     }
   }
 
+  // Mapa userId → nombre para resolución rápida en las listas de reglas.
+  const membersByUserId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of members ?? []) map.set(m.userId, m.name);
+    return map;
+  }, [members]);
+
+  function memberName(userId: string): string {
+    return membersByUserId.get(userId) ?? (members ? 'Usuario eliminado' : '…');
+  }
+
+  function actionSummary(a: RuleAction): string {
+    const p = (a.payload ?? {}) as Record<string, unknown>;
+    if (a.type === RuleActionType.ASSIGN_RESPONSIBLE) {
+      const ids = Array.isArray(p.responsibleIds)
+        ? (p.responsibleIds as string[])
+        : typeof p.responsibleId === 'string'
+          ? [p.responsibleId]
+          : [];
+      const names = ids.map(memberName).join(', ');
+      const channel =
+        NOTIFICATION_CHANNEL_LABELS[
+          (p.notificationChannel as NotificationChannel) ?? NotificationChannel.WHATSAPP
+        ];
+      return `Notificar a: ${names || '—'} (${channel})`;
+    }
+    if (
+      a.type === RuleActionType.SEND_WHATSAPP ||
+      a.type === RuleActionType.REQUEST_HOST_INFORMATION
+    ) {
+      const recipType =
+        (p.recipientType as WhatsappRecipientType) ?? WhatsappRecipientType.HOST;
+      let recipDesc = RECIPIENT_LABELS[recipType];
+      if (recipType === WhatsappRecipientType.MEMBER && p.recipientUserId) {
+        recipDesc = memberName(String(p.recipientUserId));
+      } else if (recipType === WhatsappRecipientType.PHONE && p.recipientPhone) {
+        recipDesc = String(p.recipientPhone);
+      }
+      const label =
+        a.type === RuleActionType.SEND_WHATSAPP ? 'Enviar WhatsApp a' : 'Solicitar info a';
+      return `${label}: ${recipDesc}`;
+    }
+    return ACTION_LABELS[a.type];
+  }
+
   return (
     <Stack gap="sm">
       <Stack gap={6}>
@@ -414,7 +459,7 @@ export function RulesManager({
                 {r.event === RuleEvent.ON_STATUS_CHANGED && (r.fromStatusId || r.toStatusId)
                   ? ` (${statusName(r.fromStatusId) || 'cualquiera'} → ${statusName(r.toStatusId) || 'cualquiera'})`
                   : ''}{' '}
-                · {r.actions.map((a) => ACTION_LABELS[a.type]).join(', ')}
+                · {r.actions.map(actionSummary).join(', ')}
               </Text>
             </Text>
             <Group gap={4} wrap="nowrap">

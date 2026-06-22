@@ -4,6 +4,7 @@ import {
   ActivityHistoryType,
   ActivityStatusHistory,
   FirestoreCollections,
+  NotificationChannel,
   UserRole,
 } from '@gen-task/shared';
 import { FirebaseService } from '../firebase/firebase.service';
@@ -28,6 +29,22 @@ export interface RecordFieldUpdateInput {
   changedBy: string;
   changedByRole: UserRole;
   comment?: string;
+}
+
+export interface RecordNotificationInput {
+  activityId: string;
+  organizationId: string;
+  projectId: string;
+  changedBy: string;
+  changedByRole: UserRole;
+  /** Nombre de la regla que disparó la notificación. */
+  ruleName: string;
+  /** Canal usado (WhatsApp / Email / Ambos). */
+  notificationChannel: NotificationChannel;
+  /** Descripción legible del destinatario. */
+  notificationRecipient?: string;
+  /** IDs de usuarios notificados (cuando los destinatarios son internos). */
+  notificationRecipientIds?: string[];
 }
 
 /**
@@ -78,6 +95,27 @@ export class ActivityHistoryService {
       changedBy: input.changedBy,
       changedByRole: input.changedByRole,
       comment: input.comment,
+      createdAt: new Date().toISOString(),
+    };
+    await ref.set(data);
+    return { id: ref.id, ...data };
+  }
+
+  async recordNotification(
+    input: RecordNotificationInput,
+  ): Promise<ActivityStatusHistory> {
+    const ref = this.collection.doc();
+    const data: Omit<ActivityStatusHistory, 'id'> = {
+      activityId: input.activityId,
+      organizationId: input.organizationId,
+      projectId: input.projectId,
+      type: ActivityHistoryType.NOTIFICATION_SENT,
+      changedBy: input.changedBy,
+      changedByRole: input.changedByRole,
+      comment: `Notificación: ${input.ruleName}`,
+      notificationChannel: input.notificationChannel,
+      notificationRecipient: input.notificationRecipient,
+      notificationRecipientIds: input.notificationRecipientIds,
       createdAt: new Date().toISOString(),
     };
     await ref.set(data);

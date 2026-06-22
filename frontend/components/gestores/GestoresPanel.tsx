@@ -11,6 +11,7 @@ import type {
   AllowedTransitionInput,
 } from '../../services/api/gestores.api';
 import type { RuleConditionInput } from '../../services/api/rules.api';
+import { usersApi } from '../../services/api/users.api';
 import { useAsync } from '../../hooks/useAsync';
 
 /**
@@ -40,8 +41,23 @@ export function GestoresPanel({
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+
+  async function removeGestor(membershipId: string) {
+    if (!confirm('¿Eliminar este gestor de la organización?')) return;
+    setRemovingId(membershipId);
+    setError(null);
+    try {
+      await usersApi.archiveMembership(membershipId);
+      reload();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRemovingId(null);
+    }
+  }
 
   async function createGestor(e: React.FormEvent) {
     e.preventDefault();
@@ -91,13 +107,23 @@ export function GestoresPanel({
                   <span className="gt-muted"> · {g.email}</span>
                 )}
               </span>
-              <button
-                className="gt-btn"
-                style={{ padding: '4px 10px' }}
-                onClick={() => setSelected(g.userId)}
-              >
-                Configurar acceso
-              </button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  className="gt-btn"
+                  style={{ padding: '4px 10px' }}
+                  onClick={() => setSelected(g.userId)}
+                >
+                  Configurar acceso
+                </button>
+                <button
+                  className="gt-btn"
+                  style={{ padding: '4px 10px', background: 'var(--mantine-color-red-6)', color: '#fff', opacity: removingId === g.id ? 0.6 : 1 }}
+                  disabled={removingId === g.id}
+                  onClick={() => removeGestor(g.id)}
+                >
+                  {removingId === g.id ? '...' : 'Eliminar'}
+                </button>
+              </div>
             </div>
           ))}
           {gestores && gestores.length === 0 && (
