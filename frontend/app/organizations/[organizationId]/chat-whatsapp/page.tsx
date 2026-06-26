@@ -53,7 +53,7 @@ function fmtDatetime(iso: string) {
 function ChatsView({ organizationId }: { organizationId: string }) {
   const { data: chats, loading, error: chatsError, reload: reloadChats } = useWhatsappChats(organizationId);
   const [selected, setSelected] = useState<string | null>(null);
-  const { data: messages, reload } = useWhatsappMessages(selected);
+  const { data: messages, loading: loadingMessages, error: messagesError, reload } = useWhatsappMessages(selected);
   const [draft, setDraft] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -164,6 +164,17 @@ function ChatsView({ organizationId }: { organizationId: string }) {
                 overflowY: 'auto',
               }}
             >
+              {loadingMessages && (
+                <span className="gt-muted" style={{ fontSize: 13, padding: 4 }}>Cargando mensajes...</span>
+              )}
+              {messagesError && (
+                <span style={{ fontSize: 13, color: 'var(--mantine-color-red-6, #e03131)', padding: 4 }}>
+                  Error al cargar mensajes: {messagesError}
+                </span>
+              )}
+              {!loadingMessages && !messagesError && messages && messages.length === 0 && (
+                <span className="gt-muted" style={{ fontSize: 13, padding: 4 }}>Sin mensajes aún.</span>
+              )}
               {messages?.map((m) => (
                 <div
                   key={m.id}

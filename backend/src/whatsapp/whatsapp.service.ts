@@ -114,9 +114,9 @@ export class WhatsappService {
   async listMessages(chatId: string): Promise<WhatsappMessage[]> {
     const snap = await this.messages
       .where('chatId', '==', chatId)
-      .orderBy('createdAt', 'asc')
       .get();
-    return snapshotToEntities<WhatsappMessage>(snap);
+    const msgs = snapshotToEntities<WhatsappMessage>(snap);
+    return msgs.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
   // ----------------------------------------------------------------------
