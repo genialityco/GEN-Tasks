@@ -39,12 +39,25 @@ export default function ChatWhatsappPage() {
   );
 }
 
+function fmtDatetime(iso: string) {
+  return new Date(iso).toLocaleString([], {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
 function ChatsView({ organizationId }: { organizationId: string }) {
-  const { data: chats, loading } = useWhatsappChats(organizationId);
+  const { data: chats, loading, error: chatsError, reload: reloadChats } = useWhatsappChats(organizationId);
   const [selected, setSelected] = useState<string | null>(null);
   const { data: messages, reload } = useWhatsappMessages(selected);
   const [draft, setDraft] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const selectedChat = chats?.find((c) => c.id === selected);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -59,13 +72,18 @@ function ChatsView({ organizationId }: { organizationId: string }) {
 
   async function toggleBot(chatId: string, enabled: boolean) {
     await whatsappApi.toggleBot(chatId, enabled);
-    reload();
+    reloadChats();
   }
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16 }}>
       <div className="gt-card" style={{ padding: 0 }}>
         {loading && <div style={{ padding: 12 }}>Cargando chats...</div>}
+        {chatsError && (
+          <div style={{ padding: 12, color: 'var(--mantine-color-red-6, #e03131)', fontSize: 13 }}>
+            Error al cargar: {chatsError}
+          </div>
+        )}
         {chats?.map((c) => (
           <button
             key={c.id}
@@ -84,7 +102,7 @@ function ChatsView({ organizationId }: { organizationId: string }) {
               <strong style={{ fontSize: 13 }}>{c.phone}</strong>
               {c.lastMessageAt && (
                 <span style={{ fontSize: 10, color: 'var(--text-dimmed, #888)', whiteSpace: 'nowrap' }}>
-                  {new Date(c.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {fmtDatetime(c.lastMessageAt)}
                 </span>
               )}
             </div>
@@ -98,7 +116,7 @@ function ChatsView({ organizationId }: { organizationId: string }) {
             </div>
           </button>
         ))}
-        {chats && chats.length === 0 && (
+        {!loading && !chatsError && chats && chats.length === 0 && (
           <div className="gt-muted" style={{ padding: 12 }}>
             Sin conversaciones.
           </div>
@@ -109,18 +127,33 @@ function ChatsView({ organizationId }: { organizationId: string }) {
         {!selected && <span className="gt-muted">Selecciona un chat.</span>}
         {selected && (
           <>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <button
-                className="gt-btn"
-                onClick={() => toggleBot(selected, false)}
+                onClick={() => toggleBot(selected, !(selectedChat?.botEnabled ?? true))}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '6px 14px',
+                  border: 'none',
+                  borderRadius: 20,
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: 13,
+                  background: (selectedChat?.botEnabled ?? true) ? 'var(--mantine-color-green-6, #2f9e44)' : 'var(--mantine-color-gray-5, #adb5bd)',
+                  color: '#fff',
+                  transition: 'background 0.2s',
+                }}
               >
-                Tomar control (bot OFF)
-              </button>
-              <button
-                className="gt-btn"
-                onClick={() => toggleBot(selected, true)}
-              >
-                Devolver al bot (bot ON)
+                <span style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: '50%',
+                  background: '#fff',
+                  opacity: (selectedChat?.botEnabled ?? true) ? 1 : 0.5,
+                  display: 'inline-block',
+                }} />
+                {(selectedChat?.botEnabled ?? true) ? 'Bot activo' : 'Bot inactivo'}
               </button>
             </div>
             <div
@@ -149,7 +182,7 @@ function ChatsView({ organizationId }: { organizationId: string }) {
                   }}
                 >
                   <div className="gt-muted" style={{ fontSize: 11, marginBottom: 2 }}>
-                    {m.senderType} · {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {m.senderType} · {fmtDatetime(m.createdAt)}
                   </div>
                   {m.content ?? `[${m.messageType}]`}
                 </div>

@@ -104,9 +104,11 @@ export class WhatsappService {
   async listChats(organizationId: string): Promise<WhatsappChat[]> {
     const snap = await this.chats
       .where('organizationId', '==', organizationId)
-      .orderBy('updatedAt', 'desc')
       .get();
-    return snapshotToEntities<WhatsappChat>(snap);
+    const chats = snapshotToEntities<WhatsappChat>(snap);
+    return chats.sort((a, b) =>
+      (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''),
+    );
   }
 
   async listMessages(chatId: string): Promise<WhatsappMessage[]> {
