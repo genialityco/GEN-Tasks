@@ -19,6 +19,7 @@ import { IconTrash, IconPencil, IconPlus } from '@tabler/icons-react';
 import type { Organization } from '@gen-task/shared';
 import { usersApi } from '../../services/api/users.api';
 import { organizationsApi } from '../../services/api/organizations.api';
+import type { OrganizationMember } from '@gen-task/shared';
 import { useAsync } from '../../hooks/useAsync';
 
 /**
@@ -33,6 +34,10 @@ export function AssignAdminPanel({
   onChanged: () => void;
 }) {
   const { data: users, reload: reloadUsers } = useAsync(() => usersApi.list(), []);
+  const { data: orgMembers } = useAsync(
+    () => organizationsApi.members(organization.id),
+    [organization.id],
+  );
   const [modalOpen, setModalOpen] = useState(false);
   const [mode, setMode] = useState<'create' | 'edit'>('create');
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -127,8 +132,9 @@ export function AssignAdminPanel({
 
   const userById = (id: string) => (users ?? []).find((u) => u.id === id);
   const admins = organization.admins;
-  const nonAdmins = (users ?? []).filter(
-    (u) => !organization.admins.includes(u.id) && !u.globalRole,
+  // Solo miembros de esta organización que aún no son admins (gestores candidatos a promover)
+  const nonAdmins = (orgMembers ?? []).filter(
+    (m: OrganizationMember) => !organization.admins.includes(m.userId),
   );
 
   return (
@@ -187,20 +193,20 @@ export function AssignAdminPanel({
           )}
         </Stack>
 
-        {/* Asignar un usuario existente */}
+        {/* Promover gestor existente de esta org a admin */}
         {nonAdmins.length > 0 && (
           <Stack gap={6}>
-            <Text size="sm" c="dimmed">O asignar un usuario existente:</Text>
-            {nonAdmins.slice(0, 8).map((u) => (
-              <Group key={u.id} justify="space-between" wrap="nowrap">
+            <Text size="sm" c="dimmed">O promover un gestor de esta organización:</Text>
+            {nonAdmins.slice(0, 8).map((m) => (
+              <Group key={m.userId} justify="space-between" wrap="nowrap">
                 <Text>
-                  {u.name} <Text span size="sm" c="dimmed">({u.email})</Text>
+                  {m.name} <Text span size="sm" c="dimmed">({m.email})</Text>
                 </Text>
                 <Button
                   size="xs"
                   variant="light"
                   disabled={busy}
-                  onClick={() => openCreate({ email: u.email, name: u.name })}
+                  onClick={() => openCreate({ email: m.email, name: m.name })}
                 >
                   + Admin
                 </Button>

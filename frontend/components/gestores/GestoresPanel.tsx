@@ -83,13 +83,17 @@ export function GestoresPanel({
     }
   }
 
+  const projectGestores = gestores?.filter(
+    (g) => g.projectIds?.includes(project.id),
+  );
+
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <div className="gt-card" style={{ display: 'grid', gap: 12 }}>
         <strong>Gestores</strong>
         {error && <div className="gt-error">{error}</div>}
         <div style={{ display: 'grid', gap: 6 }}>
-          {gestores?.map((g) => (
+          {projectGestores?.map((g) => (
             <div
               key={g.id}
               style={{
@@ -126,7 +130,7 @@ export function GestoresPanel({
               </div>
             </div>
           ))}
-          {gestores && gestores.length === 0 && (
+          {projectGestores && projectGestores.length === 0 && (
             <span className="gt-muted">No hay gestores aun.</span>
           )}
         </div>
