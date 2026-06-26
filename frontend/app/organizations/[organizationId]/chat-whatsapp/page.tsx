@@ -158,10 +158,12 @@ function ChatsView({ organizationId }: { organizationId: string }) {
             </div>
             <div
               style={{
-                display: 'grid',
+                display: 'flex',
+                flexDirection: 'column',
                 gap: 8,
-                maxHeight: 360,
+                maxHeight: 400,
                 overflowY: 'auto',
+                padding: '4px 2px',
               }}
             >
               {loadingMessages && (
@@ -175,29 +177,39 @@ function ChatsView({ organizationId }: { organizationId: string }) {
               {!loadingMessages && !messagesError && messages && messages.length === 0 && (
                 <span className="gt-muted" style={{ fontSize: 13, padding: 4 }}>Sin mensajes aún.</span>
               )}
-              {messages?.map((m) => (
-                <div
-                  key={m.id}
-                  style={{
-                    justifySelf:
-                      m.direction === 'OUTBOUND' ? 'end' : 'start',
-                    background:
-                      m.direction === 'OUTBOUND'
-                        ? 'rgba(59, 130, 246, 0.25)'
-                        : 'var(--surface)',
-                    color: 'var(--text)',
-                    border: '1px solid var(--border)',
-                    padding: '6px 10px',
-                    borderRadius: 8,
-                    maxWidth: '70%',
-                  }}
-                >
-                  <div className="gt-muted" style={{ fontSize: 11, marginBottom: 2 }}>
-                    {m.senderType} · {fmtDatetime(m.createdAt)}
+              {messages?.map((m) => {
+                const isOut = m.direction === 'OUTBOUND';
+                return (
+                  <div
+                    key={m.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: isOut ? 'flex-end' : 'flex-start',
+                    }}
+                  >
+                    <div
+                      style={{
+                        maxWidth: '70%',
+                        padding: '8px 12px',
+                        borderRadius: isOut ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                        background: isOut ? '#2563eb' : '#f1f3f5',
+                        color: isOut ? '#fff' : '#1a1a1a',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                      }}
+                    >
+                      <div style={{ fontSize: 10, marginBottom: 3, opacity: 0.7, fontWeight: 600 }}>
+                        {m.senderType}
+                      </div>
+                      <div style={{ fontSize: 14, lineHeight: 1.4 }}>
+                        {m.content ?? `[${m.messageType}]`}
+                      </div>
+                      <div style={{ fontSize: 10, marginTop: 4, opacity: 0.65, textAlign: isOut ? 'right' : 'left' }}>
+                        {fmtDatetime(m.createdAt)}
+                      </div>
+                    </div>
                   </div>
-                  {m.content ?? `[${m.messageType}]`}
-                </div>
-              ))}
+                );
+              })}
               <div ref={messagesEndRef} />
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
