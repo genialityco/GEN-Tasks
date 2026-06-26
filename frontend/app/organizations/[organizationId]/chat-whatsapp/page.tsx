@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useWhatsappChats, useWhatsappMessages } from '../../../../hooks/useWhatsappChats';
 import { whatsappApi } from '../../../../services/api/whatsapp.api';
 import { TemplatesManager } from '../../../../components/whatsapp/TemplatesManager';
@@ -44,6 +44,11 @@ function ChatsView({ organizationId }: { organizationId: string }) {
   const [selected, setSelected] = useState<string | null>(null);
   const { data: messages, reload } = useWhatsappMessages(selected);
   const [draft, setDraft] = useState('');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   async function send() {
     if (!selected || !draft.trim()) return;
@@ -75,8 +80,20 @@ function ChatsView({ organizationId }: { organizationId: string }) {
               background: selected === c.id ? 'rgba(59, 130, 246, 0.18)' : 'transparent',
             }}
           >
-            <strong>{c.phone}</strong>
-            <div className="gt-muted">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 4 }}>
+              <strong style={{ fontSize: 13 }}>{c.phone}</strong>
+              {c.lastMessageAt && (
+                <span style={{ fontSize: 10, color: 'var(--text-dimmed, #888)', whiteSpace: 'nowrap' }}>
+                  {new Date(c.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
+            {c.lastMessagePreview && (
+              <div style={{ fontSize: 12, color: 'var(--text-dimmed, #888)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {c.lastMessagePreview}
+              </div>
+            )}
+            <div className="gt-muted" style={{ fontSize: 11, marginTop: 2 }}>
               {c.botEnabled ? 'Bot activo' : 'Modo manual'}
             </div>
           </button>
@@ -131,12 +148,13 @@ function ChatsView({ organizationId }: { organizationId: string }) {
                     maxWidth: '70%',
                   }}
                 >
-                  <div className="gt-muted" style={{ fontSize: 11 }}>
-                    {m.senderType}
+                  <div className="gt-muted" style={{ fontSize: 11, marginBottom: 2 }}>
+                    {m.senderType} · {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
                   {m.content ?? `[${m.messageType}]`}
                 </div>
               ))}
+              <div ref={messagesEndRef} />
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <input
