@@ -15,6 +15,7 @@ import {
 import { FirebaseService } from '../firebase/firebase.service';
 import { docToEntity, snapshotToEntities } from '../firebase/firestore.helpers';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { normalizePhoneForWhatsApp } from '../common/phone';
 
 const MS_PER_DAY = 86_400_000;
 
@@ -220,7 +221,7 @@ export class ComplianceAlertsService {
   ): Promise<{ phone: string }[]> {
     const out: { phone: string }[] = [];
     const add = (phone: string | null | undefined) => {
-      const p = normalizePhone(phone);
+      const p = normalizePhoneForWhatsApp(phone);
       if (p) out.push({ phone: p });
     };
 
@@ -281,17 +282,4 @@ export class ComplianceAlertsService {
         .get(),
     );
   }
-}
-
-/**
- * Normaliza un telefono al formato del WhatsApp Cloud API (solo digitos, con
- * codigo de pais). Antepone 57 a celulares colombianos de 10 digitos que
- * empiezan por 3. Devuelve null si no hay telefono utilizable.
- */
-function normalizePhone(phone?: string | null): string | null {
-  if (!phone) return null;
-  const digits = phone.replace(/\D/g, '');
-  if (!digits) return null;
-  if (digits.length === 10 && digits.startsWith('3')) return `57${digits}`;
-  return digits;
 }

@@ -26,6 +26,7 @@ import {
 import { ActivityHistoryService } from '../activity-history/activity-history.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { ProjectsService } from '../projects/projects.service';
+import { normalizePhoneForWhatsApp } from '../common/phone';
 import { NotificationsService } from '../notifications/notifications.service';
 
 export interface RuleContext {
@@ -441,7 +442,7 @@ export class RuleEngineService {
 
     const out: { phone: string }[] = [];
     const add = (phone: string | null | undefined, who: string) => {
-      const p = normalizePhone(phone);
+      const p = normalizePhoneForWhatsApp(phone);
       if (p) {
         out.push({ phone: p });
       } else {
@@ -546,17 +547,4 @@ export class RuleEngineService {
         .get(),
     );
   }
-}
-
-/**
- * Normaliza un telefono al formato del WhatsApp Cloud API (solo digitos, con
- * codigo de pais). Antepone 57 a celulares colombianos de 10 digitos que
- * empiezan por 3. Devuelve null si no hay telefono utilizable.
- */
-function normalizePhone(phone?: string | null): string | null {
-  if (!phone) return null;
-  const digits = phone.replace(/\D/g, '');
-  if (!digits) return null;
-  if (digits.length === 10 && digits.startsWith('3')) return `57${digits}`;
-  return digits;
 }

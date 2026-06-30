@@ -14,6 +14,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { MessageTemplatesService } from '../whatsapp/message-templates.service';
 import { EmailService } from './email.service';
 import { buildActivityVars, interpolate } from '../common/template-vars';
+import { normalizePhoneForWhatsApp } from '../common/phone';
 
 /**
  * Claves logicas de las plantillas de notificacion. Cada clave puede tener una
@@ -250,18 +251,4 @@ export class NotificationsService {
         .get(),
     );
   }
-}
-
-/**
- * Normaliza un telefono al formato que exige el WhatsApp Cloud API (solo
- * digitos, con codigo de pais). Para numeros colombianos de 10 digitos que
- * empiezan por 3 (celular) antepone el indicativo 57. Devuelve null si no hay
- * telefono utilizable.
- */
-function normalizePhoneForWhatsApp(phone?: string): string | null {
-  if (!phone) return null;
-  const digits = phone.replace(/\D/g, '');
-  if (!digits) return null;
-  if (digits.length === 10 && digits.startsWith('3')) return `57${digits}`;
-  return digits;
 }
