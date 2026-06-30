@@ -257,26 +257,30 @@ export class RuleEngineService {
           : payload.responsibleId
             ? [payload.responsibleId as string]
             : [];
-        // Solo los que aun no son responsables (sin duplicar).
-        const toAdd = [...new Set(requested)].filter(
-          (id) => id && !activity.responsibleIds.includes(id),
+        const deduped = [...new Set(requested)].filter(Boolean) as string[];
+        if (deduped.length === 0) return activity;
+
+        // Solo se agregan los que aun no son responsables (evita duplicados en
+        // el array); pero la notificacion se envia a TODOS los de la regla,
+        // incluidos los que ya estaban asignados, para que siempre reciban el
+        // aviso aunque la actividad se haya creado con ellos como responsables.
+        const toAdd = deduped.filter(
+          (id) => !activity.responsibleIds.includes(id),
         );
-        if (toAdd.length === 0) return activity;
-        const responsibleIds = [...activity.responsibleIds, ...toAdd];
-        await this.activities.doc(activity.id).update({
-          responsibleIds,
-          updatedAt: new Date().toISOString(),
-        });
-        const next = { ...activity, responsibleIds };
-        // Notifica a los responsables recien asignados por la regla (best effort).
-        // El canal lo elige la regla (WhatsApp / Correo / Ambos); si no se
-        // configuro, `notifyResponsibleAssigned` cae a la plantilla / WhatsApp.
-        // El mensaje propio de la regla (con variables) reemplaza a la plantilla
-        // si se escribio; las variables del evento permiten textos dinamicos.
+        let next = activity;
+        if (toAdd.length > 0) {
+          const responsibleIds = [...activity.responsibleIds, ...toAdd];
+          await this.activities.doc(activity.id).update({
+            responsibleIds,
+            updatedAt: new Date().toISOString(),
+          });
+          next = { ...activity, responsibleIds };
+        }
+
         await this.notifications.notifyResponsibleAssigned({
           activity: next,
           project,
-          responsibleUserIds: toAdd,
+          responsibleUserIds: deduped,
           channel: payload.notificationChannel as NotificationChannel | undefined,
           messageOverride:
             typeof payload.message === 'string' ? payload.message : undefined,
@@ -294,7 +298,7 @@ export class RuleEngineService {
           notificationChannel:
             (payload.notificationChannel as NotificationChannel) ??
             NotificationChannel.WHATSAPP,
-          notificationRecipientIds: toAdd,
+          notificationRecipientIds: deduped,
         });
         return next;
       }
