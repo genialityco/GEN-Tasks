@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")"
+      "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")",
+      "Bash(node scripts/add-custom-fields-comercial.js --dry-run)",
+      "Bash(node scripts/add-custom-fields-comercial.js)",
+      "Bash(node scripts/delete-activities-by-project.js --dry-run)",
+      "Bash(node scripts/delete-activities-by-project.js)"
     ]
   }
 }

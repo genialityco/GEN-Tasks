@@ -24,6 +24,7 @@ import {
   IconCheck,
   IconX,
   IconAdjustmentsHorizontal,
+  IconList,
 } from '@tabler/icons-react';
 import {
   CustomFieldType,
@@ -95,6 +96,11 @@ export function CustomFieldsManager({
   const [rulesBusy, setRulesBusy] = useState(false);
   const rulesAdvanced = rulesField ? !fitsSimpleEditor(rulesField) : false;
 
+  // Edición de las opciones de un campo LIST existente (modal).
+  const [optionsField, setOptionsField] = useState<ActivityCustomField | null>(null);
+  const [optionsDraft, setOptionsDraft] = useState('');
+  const [optionsBusy, setOptionsBusy] = useState(false);
+
   function startRename(field: ActivityCustomField) {
     setEditingId(field.id);
     setEditLabel(field.label);
@@ -154,6 +160,32 @@ export function CustomFieldsManager({
       setError((err as Error).message);
     } finally {
       setRulesBusy(false);
+    }
+  }
+
+  function openOptions(field: ActivityCustomField) {
+    setOptionsField(field);
+    setOptionsDraft((field.options ?? []).map((o) => o.label).join(', '));
+    setError(null);
+  }
+
+  async function saveOptions() {
+    if (!optionsField) return;
+    setOptionsBusy(true);
+    setError(null);
+    try {
+      const options = optionsDraft
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean)
+        .map((o) => ({ label: o, value: o }));
+      await projectsApi.updateCustomField(projectId, optionsField.id, { options });
+      setOptionsField(null);
+      onChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setOptionsBusy(false);
     }
   }
 
@@ -312,6 +344,13 @@ export function CustomFieldsManager({
 
               {!isEditing && (
                 <Group gap="xs" wrap="nowrap">
+                  {f.type === CustomFieldType.LIST && (
+                    <Tooltip label="Editar opciones" withArrow>
+                      <ActionIcon variant="subtle" color="teal" onClick={() => openOptions(f)}>
+                        <IconList size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
                   <Tooltip label="Reglas de visibilidad" withArrow>
                     <ActionIcon variant="subtle" color="grape" onClick={() => openRules(f)}>
                       <IconAdjustmentsHorizontal size={16} />
@@ -445,6 +484,38 @@ export function CustomFieldsManager({
               Cancelar
             </Button>
             <Button onClick={saveRules} loading={rulesBusy}>Guardar reglas</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      {/* Editar opciones de un campo LIST existente */}
+      <Modal
+        opened={!!optionsField}
+        onClose={() => setOptionsField(null)}
+        title={optionsField ? `Opciones de “${optionsField.label}”` : ''}
+        centered
+        size="lg"
+      >
+        <Stack gap="sm">
+          {error && <Alert color="red">{error}</Alert>}
+          <Alert color="yellow" variant="light">
+            Si renombras una opción que ya está seleccionada en alguna actividad, esa
+            actividad queda con el valor anterior (no coincidirá con ninguna opción de
+            la lista). Para no romper datos existentes, agrega opciones nuevas en vez de
+            renombrar las que ya están en uso.
+          </Alert>
+          <TextInput
+            label="Opciones"
+            placeholder="Opciones separadas por coma (ej: Electrico, Fisico, Software)"
+            value={optionsDraft}
+            onChange={(e) => setOptionsDraft(e.currentTarget.value)}
+            data-autofocus
+          />
+          <Group gap="sm" justify="flex-end" mt="xs">
+            <Button variant="default" onClick={() => setOptionsField(null)} disabled={optionsBusy}>
+              Cancelar
+            </Button>
+            <Button onClick={saveOptions} loading={optionsBusy}>Guardar opciones</Button>
           </Group>
         </Stack>
       </Modal>
