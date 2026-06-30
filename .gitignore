@@ -34,3 +34,7 @@ Thumbs.db
 
 # Testing
 coverage/
+
+# Scripts de administración local (contienen IDs y datos sensibles)
+backend/scripts/
+
