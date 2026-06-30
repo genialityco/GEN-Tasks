@@ -10,7 +10,7 @@ import {
 } from '@gen-task/shared';
 import { FirebaseService } from '../firebase/firebase.service';
 import { docToEntity } from '../firebase/firestore.helpers';
-import { WhatsappCloudApiService } from '../whatsapp/whatsapp-cloud-api.service';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { MessageTemplatesService } from '../whatsapp/message-templates.service';
 import { EmailService } from './email.service';
 import { buildActivityVars, interpolate } from '../common/template-vars';
@@ -75,7 +75,7 @@ export class NotificationsService {
 
   constructor(
     private readonly firebase: FirebaseService,
-    private readonly cloudApi: WhatsappCloudApiService,
+    private readonly whatsapp: WhatsappService,
     private readonly templates: MessageTemplatesService,
     private readonly email: EmailService,
     private readonly config: ConfigService,
@@ -145,7 +145,10 @@ export class NotificationsService {
           ? interpolate(subjectTemplate, vars)
           : `Nueva asignación: ${ctx.activity.name}`;
 
-        await this.deliver(channel, user, { subject, body });
+        await this.deliver(channel, user, ctx.activity.organizationId, {
+          subject,
+          body,
+        });
       } catch (err) {
         this.logger.error(
           `No se pudo notificar al responsable ${userId}: ${(err as Error).message}`,
@@ -167,6 +170,7 @@ export class NotificationsService {
   private async deliver(
     channel: NotificationChannel,
     user: User,
+    organizationId: string,
     mail: { subject: string; body: string },
   ): Promise<void> {
     const useWhatsApp =
@@ -176,12 +180,18 @@ export class NotificationsService {
       channel === NotificationChannel.EMAIL ||
       channel === NotificationChannel.BOTH;
 
-    if (useWhatsApp) await this.sendWhatsApp(user, mail.body);
+    if (useWhatsApp) await this.sendWhatsApp(user, organizationId, mail.body);
     if (useEmail) await this.sendEmailNotification(user, mail);
   }
 
-  /** Envia la notificacion por WhatsApp si el usuario tiene telefono. */
-  private async sendWhatsApp(user: User, body: string): Promise<void> {
+  /** Envia la notificacion por WhatsApp si el usuario tiene telefono. Queda
+   * registrada como chat, para que sea visible en la ventana de Chats
+   * WhatsApp. */
+  private async sendWhatsApp(
+    user: User,
+    organizationId: string,
+    body: string,
+  ): Promise<void> {
     const phone = normalizePhoneForWhatsApp(user.phone);
     if (!phone) {
       this.logger.debug(
@@ -189,7 +199,7 @@ export class NotificationsService {
       );
       return;
     }
-    await this.cloudApi.sendText({ to: phone, body });
+    await this.whatsapp.sendBotMessageToPhone(organizationId, phone, body);
   }
 
   /**

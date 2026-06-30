@@ -15,7 +15,6 @@ import {
 import { FirebaseService } from '../firebase/firebase.service';
 import { docToEntity, snapshotToEntities } from '../firebase/firestore.helpers';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
-import { WhatsappCloudApiService } from '../whatsapp/whatsapp-cloud-api.service';
 
 const MS_PER_DAY = 86_400_000;
 
@@ -37,7 +36,6 @@ export class ComplianceAlertsService {
   constructor(
     private readonly firebase: FirebaseService,
     private readonly whatsapp: WhatsappService,
-    private readonly cloudApi: WhatsappCloudApiService,
     private readonly config: ConfigService,
   ) {}
 
@@ -165,17 +163,14 @@ export class ComplianceAlertsService {
 
     const message = this.renderMessage(project, activity, alert);
     for (const r of recipients) {
-      // Contactos externos (host / telefono fijo): se usa un chat para dejar
-      // registro. Personal interno (miembro / responsables): envio directo.
-      if (r.persistChat) {
-        await this.whatsapp.sendBotMessageToPhone(
-          activity.organizationId,
-          r.phone,
-          message,
-        );
-      } else {
-        await this.cloudApi.sendText({ to: r.phone, body: message });
-      }
+      // Todos los destinatarios (contactos externos o personal interno)
+      // quedan registrados como chat, para que el mensaje sea visible en la
+      // ventana de Chats WhatsApp.
+      await this.whatsapp.sendBotMessageToPhone(
+        activity.organizationId,
+        r.phone,
+        message,
+      );
     }
 
     await this.firebase.firestore
@@ -217,36 +212,35 @@ export class ComplianceAlertsService {
 
   /**
    * Resuelve los telefonos destinatarios de la alerta segun `recipientType`.
-   * Devuelve telefonos normalizados y sin duplicados. `persistChat` indica si
-   * el numero es un contacto externo (host/telefono) que debe pasar por un chat.
+   * Devuelve telefonos normalizados y sin duplicados.
    */
   private async resolveRecipients(
     alert: StatusComplianceAlert,
     activity: Activity,
-  ): Promise<{ phone: string; persistChat: boolean }[]> {
-    const out: { phone: string; persistChat: boolean }[] = [];
-    const add = (phone: string | null | undefined, persistChat: boolean) => {
+  ): Promise<{ phone: string }[]> {
+    const out: { phone: string }[] = [];
+    const add = (phone: string | null | undefined) => {
       const p = normalizePhone(phone);
-      if (p) out.push({ phone: p, persistChat });
+      if (p) out.push({ phone: p });
     };
 
     switch (alert.recipientType) {
       case WhatsappRecipientType.HOST: {
-        if (activity.hostId) add(await this.resolveHostPhone(activity), true);
+        if (activity.hostId) add(await this.resolveHostPhone(activity));
         break;
       }
       case WhatsappRecipientType.PHONE:
-        add(alert.recipientPhone, true);
+        add(alert.recipientPhone);
         break;
       case WhatsappRecipientType.MEMBER: {
         const user = await this.loadUser(alert.recipientUserId);
-        add(user?.phone ?? null, false);
+        add(user?.phone ?? null);
         break;
       }
       case WhatsappRecipientType.RESPONSIBLES: {
         for (const userId of activity.responsibleIds ?? []) {
           const user = await this.loadUser(userId);
-          add(user?.phone ?? null, false);
+          add(user?.phone ?? null);
         }
         break;
       }

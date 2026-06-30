@@ -25,7 +25,6 @@ import {
 } from '../common/template-vars';
 import { ActivityHistoryService } from '../activity-history/activity-history.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
-import { WhatsappCloudApiService } from '../whatsapp/whatsapp-cloud-api.service';
 import { ProjectsService } from '../projects/projects.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -55,7 +54,6 @@ export class RuleEngineService {
     private readonly firebase: FirebaseService,
     private readonly history: ActivityHistoryService,
     private readonly whatsapp: WhatsappService,
-    private readonly cloudApi: WhatsappCloudApiService,
     private readonly projects: ProjectsService,
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
@@ -394,18 +392,14 @@ export class RuleEngineService {
           return activity;
         }
         for (const r of recipients) {
-          // A los contactos externos (host / telefono fijo) se les abre/usa un
-          // chat para dejar registro; al personal interno (miembro / responsables)
-          // se les envia directo, sin crear un chat de host.
-          if (r.persistChat) {
-            await this.whatsapp.sendBotMessageToPhone(
-              activity.organizationId,
-              r.phone,
-              message,
-            );
-          } else {
-            await this.cloudApi.sendText({ to: r.phone, body: message });
-          }
+          // Todos los destinatarios (contactos externos o personal interno)
+          // quedan registrados como chat, para que el mensaje sea visible en
+          // la ventana de Chats WhatsApp.
+          await this.whatsapp.sendBotMessageToPhone(
+            activity.organizationId,
+            r.phone,
+            message,
+          );
         }
         await this.history.recordNotification({
           activityId: activity.id,
@@ -438,22 +432,18 @@ export class RuleEngineService {
   private async resolveRecipients(
     payload: Record<string, unknown>,
     activity: Activity,
-  ): Promise<{ phone: string; persistChat: boolean }[]> {
+  ): Promise<{ phone: string }[]> {
     const type =
       (payload.recipientType as WhatsappRecipientType | undefined) ??
       WhatsappRecipientType.HOST;
 
     this.logger.debug(`Resolviendo destinatarios WhatsApp (tipo=${type}).`);
 
-    const out: { phone: string; persistChat: boolean }[] = [];
-    const add = (
-      phone: string | null | undefined,
-      persistChat: boolean,
-      who: string,
-    ) => {
+    const out: { phone: string }[] = [];
+    const add = (phone: string | null | undefined, who: string) => {
       const p = normalizePhone(phone);
       if (p) {
-        out.push({ phone: p, persistChat });
+        out.push({ phone: p });
       } else {
         this.logger.debug(
           `  ${who}: telefono ausente o invalido (valor=${JSON.stringify(phone)}); descartado.`,
@@ -467,12 +457,12 @@ export class RuleEngineService {
           this.logger.debug('  HOST: la actividad no tiene hostId.');
           break;
         }
-        add(await this.resolveActivityPhone(activity), true, `host ${activity.hostId}`);
+        add(await this.resolveActivityPhone(activity), `host ${activity.hostId}`);
         break;
       }
 
       case WhatsappRecipientType.PHONE:
-        add(payload.recipientPhone as string | undefined, true, 'telefono fijo del payload');
+        add(payload.recipientPhone as string | undefined, 'telefono fijo del payload');
         break;
 
       case WhatsappRecipientType.MEMBER: {
@@ -486,7 +476,7 @@ export class RuleEngineService {
           this.logger.debug(`  MEMBER: usuario ${userId} no encontrado.`);
           break;
         }
-        add(user.phone ?? null, false, `miembro ${userId}`);
+        add(user.phone ?? null, `miembro ${userId}`);
         break;
       }
 
@@ -502,7 +492,7 @@ export class RuleEngineService {
             this.logger.debug(`  RESPONSIBLES: usuario ${userId} no encontrado.`);
             continue;
           }
-          add(user.phone ?? null, false, `responsable ${userId}`);
+          add(user.phone ?? null, `responsable ${userId}`);
         }
         break;
       }
