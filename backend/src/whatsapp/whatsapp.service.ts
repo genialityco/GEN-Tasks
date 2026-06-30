@@ -11,6 +11,7 @@ import {
   CustomFieldType,
   FirestoreCollections,
   Host,
+  LogicalOperator,
   MessageDirection,
   MessageSenderType,
   MessageType,
@@ -27,6 +28,7 @@ import {
   docToEntity,
   snapshotToEntities,
 } from '../firebase/firestore.helpers';
+import { evaluateConditions } from '../common/rule-evaluation';
 import { HostsService } from '../hosts/hosts.service';
 import { WhatsappCloudApiService } from './whatsapp-cloud-api.service';
 import { OrganizationResolverService } from './organization-resolver.service';
@@ -401,7 +403,7 @@ export class WhatsappService {
       return this.reply(chat, 'El proyecto ya no esta disponible.');
     }
 
-    const fields = this.botFields(project);
+    const fields = this.botFields(project, undefined, true);
     const tempData = (session.tempData ?? {}) as CreationTempData;
     const values = tempData.values ?? {};
     const index = session.currentFieldIndex ?? -1;
@@ -653,7 +655,7 @@ export class WhatsappService {
       project?.statuses.find((s) => s.id === activity.statusId)?.name ??
       activity.statusId;
     const lines = [`*${activity.name}*`, `Estado: ${statusName}`];
-    const fields = this.botFields(project ?? ({ customFields: [] } as unknown as Project));
+    const fields = this.botFields(project ?? ({ customFields: [] } as unknown as Project), activity);
     for (const field of fields) {
       const value = activity.customFieldValues?.[field.key];
       if (value === undefined || value === null || value === '') continue;
@@ -732,7 +734,7 @@ export class WhatsappService {
         await this.resetSession(session.id);
         return this.reply(chat, 'La actividad ya no esta disponible. ' + this.menuText());
       }
-      const fields = this.botFields(project);
+      const fields = this.botFields(project, activity);
       if (fields.length === 0) {
         await this.resetSession(session.id);
         return this.reply(chat, 'Esta actividad no tiene campos editables. ' + this.menuText());
@@ -761,7 +763,7 @@ export class WhatsappService {
       const project = activity
         ? docToEntity<Project>(await this.projects.doc(activity.projectId).get())
         : null;
-      const field = this.botFields(project ?? ({ customFields: [] } as unknown as Project)).find(
+      const field = this.botFields(project ?? ({ customFields: [] } as unknown as Project), activity ?? undefined).find(
         (f) => f.key === fieldKey,
       );
       if (!field) {
@@ -781,7 +783,7 @@ export class WhatsappService {
       const project = activity
         ? docToEntity<Project>(await this.projects.doc(activity.projectId).get())
         : null;
-      const field = this.botFields(project ?? ({ customFields: [] } as unknown as Project)).find(
+      const field = this.botFields(project ?? ({ customFields: [] } as unknown as Project), activity ?? undefined).find(
         (f) => f.key === temp.fieldKey,
       );
       if (!activity || !field) {
@@ -875,10 +877,36 @@ export class WhatsappService {
   // Helpers del bot
   // ----------------------------------------------------------------------
 
-  /** Campos personalizados activos del proyecto, ordenados, que el bot solicita. */
-  private botFields(project: Project): ActivityCustomField[] {
+  /**
+   * Campos personalizados activos del proyecto que el bot debe solicitar.
+   *
+   * - Sin `activity` + `creationMode=true`: solo campos requeridos sin condiciones
+   *   de visibilidad. Mantiene la creación simple (nombre + obligatorios).
+   * - Sin `activity` + `creationMode=false`: todos los campos sin condiciones.
+   * - Con `activity`: campos cuyas condiciones de visibilidad se cumplen para
+   *   el estado actual de esa actividad (modo edición / consulta).
+   */
+  private botFields(
+    project: Project,
+    activity?: Partial<Activity>,
+    creationMode = false,
+  ): ActivityCustomField[] {
     return (project.customFields ?? [])
-      .filter((f) => f.isActive && !f.isArchived)
+      .filter((f) => {
+        if (!f.isActive || f.isArchived) return false;
+        const conditions = f.visibilityConditions ?? [];
+        if (conditions.length === 0) {
+          // En creación: solo los obligatorios para no sobrecargar al gestor.
+          if (creationMode && !f.required) return false;
+          return true;
+        }
+        if (!activity) return false;
+        return evaluateConditions(
+          conditions,
+          f.visibilityLogicalOperator ?? LogicalOperator.AND,
+          activity,
+        );
+      })
       .sort((a, b) => a.order - b.order);
   }
 
