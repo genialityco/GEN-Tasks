@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../services/auth/AuthProvider';
 import { isSuperAdmin } from '../../services/auth/roles';
@@ -8,6 +9,7 @@ import { isSuperAdmin } from '../../services/auth/roles';
 export function Topbar() {
   const { firebaseUser, profile, logout } = useAuth();
   const router = useRouter();
+  const homeHref = isSuperAdmin(profile) ? '/super-admin' : '/organizations';
 
   async function handleLogout() {
     await logout();
@@ -26,7 +28,9 @@ export function Topbar() {
         borderBottom: '1px solid var(--border)',
       }}
     >
-      <strong>GEN-Task</strong>
+      <Link href={homeHref} style={{ color: 'inherit', textDecoration: 'none' }}>
+        <strong>GEN-Task</strong>
+      </Link>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <span className="gt-muted">
           {firebaseUser?.email}

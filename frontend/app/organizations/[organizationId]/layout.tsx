@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { RequireAuth } from '../../../components/layout/RequireAuth';
 import { Topbar } from '../../../components/layout/Topbar';
 import { OrganizationSidebar } from '../../../components/layout/OrganizationSidebar';
+import { Breadcrumbs } from '../../../components/layout/Breadcrumbs';
 import { useOrganization } from '../../../hooks/useOrganizations';
 
 /** Layout del panel de organizacion: topbar + sidebar + contenido. */
@@ -27,7 +28,12 @@ export default function OrganizationLayout({
             organization?.enabledFeatures.whatsappEnabled ?? false
           }
         />
-        <div style={{ flex: 1, overflow: 'auto' }}>{children}</div>
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          <div style={{ padding: '12px 24px 0' }}>
+            <Breadcrumbs />
+          </div>
+          {children}
+        </div>
       </div>
     </RequireAuth>
   );
