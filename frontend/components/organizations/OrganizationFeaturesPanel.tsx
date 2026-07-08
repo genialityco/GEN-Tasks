@@ -13,6 +13,7 @@ const FEATURE_LABELS: Record<keyof OrganizationFeatures, string> = {
   fileUploadsEnabled: 'Subida de archivos',
   manualChatEnabled: 'Chat manual',
   notificationsEnabled: 'Notificaciones (correo y WhatsApp)',
+  contactsEnabled: 'Contactos',
 };
 
 /** Activa/desactiva funcionalidades por organizacion (solo SUPER_ADMIN). */

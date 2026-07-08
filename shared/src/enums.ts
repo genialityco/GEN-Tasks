@@ -150,6 +150,7 @@ export const FirestoreCollections = {
   WHATSAPP_CHATS: 'whatsapp_chats',
   WHATSAPP_MESSAGES: 'whatsapp_messages',
   MESSAGE_TEMPLATES: 'message_templates',
+  CONTACTS: 'contacts',
 } as const;
 
 export type FirestoreCollection =

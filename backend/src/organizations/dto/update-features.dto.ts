@@ -16,6 +16,7 @@ export class OrganizationFeaturesDto {
   @IsOptional() @IsBoolean() fileUploadsEnabled?: boolean;
   @IsOptional() @IsBoolean() manualChatEnabled?: boolean;
   @IsOptional() @IsBoolean() notificationsEnabled?: boolean;
+  @IsOptional() @IsBoolean() contactsEnabled?: boolean;
 }
 
 export class UpdateFeaturesDto {

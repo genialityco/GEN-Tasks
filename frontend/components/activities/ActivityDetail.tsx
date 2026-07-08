@@ -41,6 +41,8 @@ import { DynamicField, normalizeType } from "./DynamicField";
 import { FileFieldUploader } from "./FileFieldUploader";
 import { isFileField } from "./InlineCellEditor";
 import { organizationsApi } from "../../services/api/organizations.api";
+import { contactsApi } from "../../services/api/contacts.api";
+import { contactLabel } from "../contacts/contact.helpers";
 import { useAsync } from "../../hooks/useAsync";
 import {
   COMPLIANCE_COLOR,
@@ -65,12 +67,15 @@ export function ActivityDetail({
   project,
   backHref,
   canManageResponsibles = false,
+  contactsEnabled = false,
 }: {
   activity: Activity;
   project: Project;
   backHref: string;
   /** Solo ADMIN y SUPER_ADMIN pueden asignar responsables. */
   canManageResponsibles?: boolean;
+  /** La organizacion tiene contactos habilitados (solo ADMIN/SUPER_ADMIN los edita). */
+  contactsEnabled?: boolean;
 }) {
   const [activity, setActivity] = useState(initial);
   const [comment, setComment] = useState("");
@@ -187,6 +192,50 @@ export function ActivityDetail({
       pushError((err as Error).message);
     } finally {
       setSavingResponsibles(false);
+    }
+  }
+
+  // Contactos relacionados con la actividad. Solo ADMIN/SUPER_ADMIN con la
+  // funcionalidad activa pueden verlos/editarlos (el endpoint es admin-only).
+  const canManageContacts = canManageResponsibles && contactsEnabled;
+  const { data: orgContacts } = useAsync(
+    () =>
+      canManageContacts
+        ? contactsApi.list(activity.organizationId)
+        : Promise.resolve([]),
+    [canManageContacts, activity.organizationId],
+  );
+  const { data: contactFields } = useAsync(
+    () =>
+      canManageContacts
+        ? contactsApi.listFields(activity.organizationId)
+        : Promise.resolve([]),
+    [canManageContacts, activity.organizationId],
+  );
+  const [editingContacts, setEditingContacts] = useState(false);
+  const [contactIds, setContactIds] = useState<string[]>(
+    activity.contactIds ?? [],
+  );
+  const [savingContacts, setSavingContacts] = useState(false);
+  const contactNameById = (id: string) => {
+    const c = (orgContacts ?? []).find((x) => x.id === id);
+    return c ? contactLabel(c, contactFields ?? []) : id;
+  };
+
+  async function saveContacts(ids: string[]) {
+    setSavingContacts(true);
+    try {
+      const updated = await activitiesApi.update(activity.id, {
+        contactIds: ids,
+      });
+      setActivity(updated);
+      setContactIds(updated.contactIds ?? []);
+      setEditingContacts(false);
+      pushToast("Contactos actualizados.");
+    } catch (err) {
+      pushError((err as Error).message);
+    } finally {
+      setSavingContacts(false);
     }
   }
 
@@ -895,6 +944,79 @@ export function ActivityDetail({
               </Text>
             )}
           </Stack>
+
+          {/* Contactos relacionados (solo ADMIN/SUPER_ADMIN, si está activo). */}
+          {canManageContacts && (
+            <Stack gap={4}>
+              <Group justify="space-between" align="center" wrap="nowrap">
+                <Text fw={700} size="sm" c="dimmed">
+                  Contactos
+                </Text>
+                {editingContacts ? (
+                  <Group gap="xs" wrap="nowrap">
+                    <Tooltip label="Guardar" withArrow>
+                      <ActionIcon
+                        color="green"
+                        variant="light"
+                        loading={savingContacts}
+                        onClick={() => saveContacts(contactIds)}
+                      >
+                        <IconCheck size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label="Cancelar" withArrow>
+                      <ActionIcon
+                        color="gray"
+                        variant="light"
+                        onClick={() => {
+                          setContactIds(activity.contactIds ?? []);
+                          setEditingContacts(false);
+                        }}
+                      >
+                        <IconX size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </Group>
+                ) : (
+                  <Tooltip label="Editar contactos" withArrow>
+                    <ActionIcon
+                      variant="subtle"
+                      color="blue"
+                      onClick={() => {
+                        setContactIds(activity.contactIds ?? []);
+                        setEditingContacts(true);
+                      }}
+                    >
+                      <IconPencil size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+              </Group>
+              {editingContacts ? (
+                <MultiSelect
+                  placeholder="Relacionar contactos..."
+                  value={contactIds}
+                  onChange={setContactIds}
+                  data={(orgContacts ?? []).map((c) => ({
+                    value: c.id,
+                    label: contactLabel(c, contactFields ?? []),
+                  }))}
+                  nothingFoundMessage="Sin contactos"
+                  searchable
+                  clearable
+                  disabled={savingContacts}
+                />
+              ) : (
+                <Text>
+                  {(activity.contactIds ?? []).length > 0
+                    ? (activity.contactIds ?? [])
+                        .map(contactNameById)
+                        .join(", ")
+                    : "—"}
+                </Text>
+              )}
+            </Stack>
+          )}
         </Group>
       </Paper>
     </>

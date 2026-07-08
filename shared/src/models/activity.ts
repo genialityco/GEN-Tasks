@@ -32,6 +32,12 @@ export interface Activity {
   scheduledDate?: IsoDate;
   /** Puede estar vacio (actividad sin responsable) o tener uno o varios. */
   responsibleIds: string[];
+  /**
+   * Contactos relacionados con la actividad (relacion N a N). Es el vinculo que
+   * asocia un contacto a un proyecto: un contacto "esta en un proyecto" si alguna
+   * actividad de ese proyecto lo referencia aqui.
+   */
+  contactIds?: string[];
   /** Valores de campos personalizados, indexados por la `key` del campo. */
   customFieldValues: Record<string, unknown>;
   source: ActivitySource;

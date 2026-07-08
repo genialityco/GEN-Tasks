@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 import { Paper, Loader, Alert } from '@mantine/core';
 import { UserRole } from '@gen-task/shared';
 import { useProject } from '../../../../../../../hooks/useProjects';
+import { useOrganization } from '../../../../../../../hooks/useOrganizations';
 import { useAsync } from '../../../../../../../hooks/useAsync';
 import { activitiesApi } from '../../../../../../../services/api/activities.api';
 import { ActivityDetail } from '../../../../../../../components/activities/ActivityDetail';
@@ -22,6 +23,9 @@ export default function ActivityDetailPage() {
     isSuperAdmin(profile) || role === UserRole.ADMIN;
 
   const { data: project, loading: loadingProject, error: errorProject } = useProject(params.projectId);
+  const { data: organization } = useOrganization(params.organizationId);
+  const contactsEnabled =
+    organization?.enabledFeatures.contactsEnabled ?? false;
   const { data: activity, loading: loadingActivity, error: errorActivity } = useAsync(
     () => activitiesApi.get(params.activityId),
     [params.activityId],
@@ -41,6 +45,7 @@ export default function ActivityDetailPage() {
             project={project}
             backHref={backHref}
             canManageResponsibles={canManageResponsibles}
+            contactsEnabled={contactsEnabled}
           />
         )}
       </Paper>

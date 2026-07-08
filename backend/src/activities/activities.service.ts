@@ -172,6 +172,7 @@ export class ActivitiesService {
       statusId,
       scheduledDate: dto.scheduledDate,
       responsibleIds: dto.responsibleIds ?? [],
+      contactIds: dto.contactIds ?? [],
       customFieldValues,
       source: ActivitySource.WEB,
       createdBy: user.uid,
@@ -399,6 +400,7 @@ export class ActivitiesService {
     if (dto.name !== undefined) patch.name = dto.name;
     if (dto.scheduledDate !== undefined) patch.scheduledDate = dto.scheduledDate;
     if (dto.responsibleIds !== undefined) patch.responsibleIds = dto.responsibleIds;
+    if (dto.contactIds !== undefined) patch.contactIds = dto.contactIds;
 
     // Responsables recien agregados (para notificarles tras guardar).
     const newResponsibleIds =

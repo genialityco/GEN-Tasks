@@ -11,3 +11,4 @@ export * from './models/project';
 export * from './models/activity';
 export * from './models/gestor';
 export * from './models/whatsapp';
+export * from './models/contact';

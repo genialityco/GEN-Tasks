@@ -16,6 +16,7 @@ import { RulesModule } from './rules/rules.module';
 import { HostsModule } from './hosts/hosts.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { ComplianceModule } from './compliance/compliance.module';
+import { ContactsModule } from './contacts/contacts.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { ComplianceModule } from './compliance/compliance.module';
     HostsModule,
     WhatsappModule,
     ComplianceModule,
+    ContactsModule,
   ],
   providers: [
     // FirebaseAuthGuard global: protege todos los endpoints salvo los @Public.

@@ -1,4 +1,5 @@
 import { IsoDate } from './common';
+import { ContactCustomField } from './contact';
 
 /** Funcionalidades habilitables por organizacion (controladas por el SUPER_ADMIN). */
 export interface OrganizationFeatures {
@@ -9,6 +10,8 @@ export interface OrganizationFeatures {
   triggersEnabled: boolean;
   fileUploadsEnabled: boolean;
   manualChatEnabled: boolean;
+  /** Modulo de contactos (campos personalizados + importacion masiva). */
+  contactsEnabled: boolean;
   /**
    * Notificaciones automaticas salientes (correo y WhatsApp). Si es `false`, no
    * se envia ninguna notificacion: asignacion de responsable, alertas de
@@ -35,6 +38,8 @@ export interface Organization {
   /** userIds de los administradores asignados a esta organizacion. */
   admins: string[];
   enabledFeatures: OrganizationFeatures;
+  /** Definicion de los campos que tendran los contactos de esta organizacion. */
+  contactFields?: ContactCustomField[];
   whatsappConfig?: WhatsappOrganizationConfig;
   isActive: boolean;
   isArchived: boolean;
@@ -54,4 +59,5 @@ export const DEFAULT_ORGANIZATION_FEATURES: OrganizationFeatures = {
   fileUploadsEnabled: true,
   manualChatEnabled: true,
   notificationsEnabled: true,
+  contactsEnabled: false,
 };

@@ -12,6 +12,7 @@ import { useProjects } from '../../../hooks/useProjects';
 import { CreateProjectForm } from '../../../components/projects/CreateProjectForm';
 import { OrganizationFeaturesPanel } from '../../../components/organizations/OrganizationFeaturesPanel';
 import { AssignAdminPanel } from '../../../components/organizations/AssignAdminPanel';
+import { ContactsSection } from '../../../components/contacts/ContactsSection';
 
 /** Vista inicial de la organizacion: proyectos + administracion (segun rol). */
 export default function OrganizationHomePage() {
@@ -71,6 +72,11 @@ export default function OrganizationHomePage() {
             )}
           </Stack>
         </Stack>
+
+        {/* Contactos (ADMIN de la organizacion y SUPER_ADMIN, si esta habilitado) */}
+        {isAdmin && organization?.enabledFeatures.contactsEnabled && (
+          <ContactsSection organizationId={organizationId} />
+        )}
 
         {/* Administracion (solo SUPER_ADMIN) */}
         {isSuperAdmin(profile) && organization && (

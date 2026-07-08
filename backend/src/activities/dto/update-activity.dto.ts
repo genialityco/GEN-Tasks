@@ -22,6 +22,11 @@ export class UpdateActivityDto {
   responsibleIds?: string[];
 
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  contactIds?: string[];
+
+  @IsOptional()
   @IsObject()
   customFieldValues?: Record<string, unknown>;
 }

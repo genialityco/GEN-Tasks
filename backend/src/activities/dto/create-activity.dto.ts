@@ -25,6 +25,12 @@ export class CreateActivityDto {
   @IsString({ each: true })
   responsibleIds?: string[];
 
+  /** Contactos relacionados con la actividad. */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  contactIds?: string[];
+
   /** Valores de campos personalizados indexados por la key del campo. */
   @IsOptional()
   @IsObject()

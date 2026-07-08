@@ -38,14 +38,20 @@ export function ActivitiesPanel({
   project,
   role,
   organizationId,
+  contactsEnabled = false,
   onProjectChanged,
 }: {
   project: Project;
   role: UserRole | null;
   organizationId: string;
+  /** La organizacion tiene la funcionalidad de contactos habilitada. */
+  contactsEnabled?: boolean;
   /** Recarga del proyecto tras cambiar su configuracion (ej: columnas ocultas). */
   onProjectChanged?: () => void;
 }) {
+  const canUseContacts =
+    contactsEnabled &&
+    (role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN);
   const { data: activities, loading, error, reload } = useActivities(project.id, {
     includeArchived: true,
   });
@@ -105,6 +111,7 @@ export function ActivitiesPanel({
       >
         <CreateActivityForm
           project={project}
+          contactsEnabled={canUseContacts}
           onCancel={() => setCreating(false)}
           onCreated={() => {
             setCreating(false);

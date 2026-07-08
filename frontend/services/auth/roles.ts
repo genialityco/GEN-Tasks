@@ -27,7 +27,7 @@ export function canAccessOrganization(
 /** Define que pestanas del proyecto puede ver cada rol (ver spec seccion 17). */
 export function canViewProjectTab(
   role: UserRole | null,
-  tab: 'activities' | 'host' | 'gestores' | 'config',
+  tab: 'activities' | 'host' | 'gestores' | 'config' | 'contacts',
 ): boolean {
   if (!role) return false;
   switch (tab) {
@@ -38,6 +38,7 @@ export function canViewProjectTab(
       );
     case 'gestores':
     case 'config':
+    case 'contacts':
       return [UserRole.SUPER_ADMIN, UserRole.ADMIN].includes(role);
     default:
       return false;

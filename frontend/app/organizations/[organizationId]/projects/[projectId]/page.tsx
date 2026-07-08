@@ -9,16 +9,19 @@ import {
   roleInOrganization,
 } from '../../../../../services/auth/roles';
 import { useProject } from '../../../../../hooks/useProjects';
+import { useOrganization } from '../../../../../hooks/useOrganizations';
 import { ActivitiesPanel } from '../../../../../components/activities/ActivitiesPanel';
 import { GestoresPanel } from '../../../../../components/gestores/GestoresPanel';
 import { HostsPanel } from '../../../../../components/hosts/HostsPanel';
+import { ProjectContactsPanel } from '../../../../../components/contacts/ProjectContactsPanel';
 
-type Tab = 'activities' | 'host' | 'gestores';
+type Tab = 'activities' | 'host' | 'gestores' | 'contacts';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'activities', label: 'Actividades' },
   { key: 'host', label: 'Host' },
   { key: 'gestores', label: 'Gestores' },
+  { key: 'contacts', label: 'Contactos' },
 ];
 
 export default function ProjectPage() {
@@ -28,7 +31,13 @@ export default function ProjectPage() {
   const [tab, setTab] = useState<Tab>('activities');
 
   const { data: project, loading, error, reload } = useProject(params.projectId);
-  const visibleTabs = TABS.filter((t) => canViewProjectTab(role, t.key));
+  const { data: organization } = useOrganization(params.organizationId);
+  const contactsEnabled =
+    organization?.enabledFeatures.contactsEnabled ?? false;
+  const visibleTabs = TABS.filter((t) => {
+    if (t.key === 'contacts' && !contactsEnabled) return false;
+    return canViewProjectTab(role, t.key);
+  });
 
   // Refresca el proyecto cuando se guarda su configuracion desde el modal
   // del sidebar.
@@ -63,6 +72,7 @@ export default function ProjectPage() {
                   project={project}
                   role={role}
                   organizationId={params.organizationId}
+                  contactsEnabled={contactsEnabled}
                   onProjectChanged={reload}
                 />
               </Tabs.Panel>
@@ -74,6 +84,15 @@ export default function ProjectPage() {
               <Tabs.Panel value="gestores">
                 <GestoresPanel organizationId={params.organizationId} project={project} />
               </Tabs.Panel>
+
+              {contactsEnabled && (
+                <Tabs.Panel value="contacts">
+                  <ProjectContactsPanel
+                    organizationId={params.organizationId}
+                    projectId={params.projectId}
+                  />
+                </Tabs.Panel>
+              )}
             </Tabs>
           </Paper>
         )}
