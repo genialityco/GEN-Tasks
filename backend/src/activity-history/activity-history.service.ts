@@ -131,4 +131,15 @@ export class ActivityHistoryService {
     const entries = snapshotToEntities<ActivityStatusHistory>(snap);
     return entries.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   }
+
+  /** Elimina todo el historial de una actividad (al borrarla definitivamente). */
+  async deleteByActivity(activityId: string): Promise<void> {
+    const snap = await this.collection
+      .where('activityId', '==', activityId)
+      .get();
+    if (snap.empty) return;
+    const batch = this.firebase.firestore.batch();
+    snap.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+  }
 }

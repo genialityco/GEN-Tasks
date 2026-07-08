@@ -16,6 +16,7 @@ import {
   Alert,
   Select,
   Anchor,
+  Modal,
 } from '@mantine/core';
 import {
   IconFilter,
@@ -23,6 +24,8 @@ import {
   IconPencil,
   IconColumns3,
   IconX,
+  IconTrash,
+  IconAlertTriangle,
 } from '@tabler/icons-react';
 import {
   CustomFieldType,
@@ -93,9 +96,29 @@ export function ActivitiesTable({
   const [editing, setEditing] = useState<{ activityId: string; colKey: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Ocultar columnas (ADMIN/SUPER_ADMIN).
-  // Ocultar columnas (ADMIN/SUPER_ADMIN).
   const canManageColumns = role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN;
+  // Eliminar definitivamente (solo ADMIN/SUPER_ADMIN, y solo archivadas).
+  const canDelete = role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN;
   const hiddenKeys = project.hiddenColumnKeys ?? [];
+
+  // Confirmacion de borrado definitivo (irreversible).
+  const [deleteTarget, setDeleteTarget] = useState<Activity | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await activitiesApi.remove(deleteTarget.id);
+      setDeleteTarget(null);
+      onChanged?.();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   const allColumns = useMemo<Column[]>(() => {
     const base: Column[] = [
@@ -507,6 +530,19 @@ export function ActivitiesTable({
                 <Button component={Link} href={detailHref(activity.id)} size="xs" variant="light">
                   Ver Detalle
                 </Button>
+                {canDelete && activity.isArchived && (
+                  <Tooltip label="Eliminar definitivamente" withArrow>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      color="red"
+                      leftSection={<IconTrash size={14} />}
+                      onClick={() => setDeleteTarget(activity)}
+                    >
+                      Eliminar
+                    </Button>
+                  </Tooltip>
+                )}
               </Group>
             </Table.Td>
           </Table.Tr>
@@ -520,7 +556,44 @@ export function ActivitiesTable({
         )}
       </Table.Tbody>
     </Table>
-      
+
+      <Modal
+        opened={!!deleteTarget}
+        onClose={() => !deleting && setDeleteTarget(null)}
+        title={
+          <Group gap="xs">
+            <IconAlertTriangle size={20} color="var(--mantine-color-red-6)" />
+            <Text fw={700}>Eliminar actividad</Text>
+          </Group>
+        }
+        centered
+      >
+        <Stack gap="md">
+          <Text size="sm">
+            ¿Seguro que deseas eliminar{' '}
+            <Text span fw={700}>
+              {deleteTarget?.name}
+            </Text>
+            ?
+          </Text>
+          <Alert color="red" icon={<IconAlertTriangle size={16} />}>
+            Esta acción es permanente. Si eliminas esta actividad{' '}
+            <strong>no se podrá recuperar</strong>.
+          </Alert>
+          <Group justify="flex-end" gap="sm">
+            <Button
+              variant="default"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleting}
+            >
+              Cancelar
+            </Button>
+            <Button color="red" loading={deleting} onClick={confirmDelete}>
+              Eliminar definitivamente
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </>
   );
 }

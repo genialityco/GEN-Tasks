@@ -570,6 +570,32 @@ export class ActivitiesService {
     return this.loadAccessibleActivity(activityId, user);
   }
 
+  /**
+   * Elimina definitivamente una actividad (accion irreversible). Solo ADMIN y
+   * SUPER_ADMIN pueden hacerlo, y unicamente sobre actividades archivadas. Borra
+   * tambien su historial para no dejar registros huerfanos.
+   */
+  async remove(
+    activityId: string,
+    user: AuthenticatedUser,
+  ): Promise<{ id: string; deleted: true }> {
+    const activity = await this.loadAccessibleActivity(activityId, user);
+    const role = this.effectiveRole(user, activity.organizationId);
+    if (role !== UserRole.ADMIN && role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Solo un administrador puede eliminar actividades.',
+      );
+    }
+    if (!activity.isArchived) {
+      throw new BadRequestException(
+        'Solo se pueden eliminar actividades archivadas.',
+      );
+    }
+    await this.history.deleteByActivity(activityId);
+    await this.collection.doc(activityId).delete();
+    return { id: activityId, deleted: true };
+  }
+
   // ----------------------------------------------------------------------
   // Subida de archivos (campos FILE / IMAGE / VIDEO)
   // ----------------------------------------------------------------------

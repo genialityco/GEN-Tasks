@@ -60,6 +60,11 @@ export const activitiesApi = {
     }),
   archive: (activityId: string) =>
     apiClient.patch<Activity>(`/activities/${activityId}/archive`),
+  /** Elimina definitivamente una actividad archivada (accion irreversible). */
+  remove: (activityId: string) =>
+    apiClient.delete<{ id: string; deleted: true }>(
+      `/activities/${activityId}`,
+    ),
   history: (activityId: string) =>
     apiClient.get<ActivityStatusHistory[]>(
       `/activities/${activityId}/history`,

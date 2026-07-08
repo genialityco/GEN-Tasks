@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -113,6 +114,14 @@ export class ActivitiesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.activities.archive(activityId, user);
+  }
+
+  @Delete('activities/:activityId')
+  remove(
+    @Param('activityId') activityId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.activities.remove(activityId, user);
   }
 
   @Get('activities/:activityId/history')
