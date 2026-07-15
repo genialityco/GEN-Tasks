@@ -55,16 +55,39 @@ function ChatsView({ organizationId }: { organizationId: string }) {
   const [selected, setSelected] = useState<string | null>(null);
   const { data: messages, loading: loadingMessages, error: messagesError, reload } = useWhatsappMessages(selected);
   const [draft, setDraft] = useState('');
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  // Si el usuario esta al fondo, seguimos anclando el scroll a los mensajes
+  // nuevos; si subio a leer, respetamos su posicion (el polling de 5 s no debe
+  // arrastrarlo hacia abajo).
+  const stickToBottomRef = useRef(true);
 
   const selectedChat = chats?.find((c) => c.id === selected);
 
+  function handleMessagesScroll() {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < 60;
+  }
+
+  // Al cambiar de chat, volvemos a anclar al fondo.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    stickToBottomRef.current = true;
+  }, [selected]);
+
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    // Movemos el scroll SOLO dentro del contenedor de mensajes. Usar
+    // scrollIntoView desplazaba tambien la pagina completa (todos los
+    // ancestros con scroll), lo que arrastraba la vista hacia abajo y no
+    // dejaba leer el historial.
+    const el = messagesContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   async function send() {
     if (!selected || !draft.trim()) return;
+    stickToBottomRef.current = true;
     await whatsappApi.sendMessage(selected, draft.trim());
     setDraft('');
     reload();
@@ -76,8 +99,20 @@ function ChatsView({ organizationId }: { organizationId: string }) {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16 }}>
-      <div className="gt-card" style={{ padding: 0 }}>
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '280px 1fr',
+        gap: 16,
+        alignItems: 'start',
+        height: 'calc(100vh - 240px)',
+        minHeight: 420,
+      }}
+    >
+      <div
+        className="gt-card"
+        style={{ padding: 0, height: '100%', overflowY: 'auto' }}
+      >
         {loading && <div style={{ padding: 12 }}>Cargando chats...</div>}
         {chatsError && (
           <div style={{ padding: 12, color: 'var(--mantine-color-red-6, #e03131)', fontSize: 13 }}>
@@ -99,13 +134,20 @@ function ChatsView({ organizationId }: { organizationId: string }) {
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 4 }}>
-              <strong style={{ fontSize: 13 }}>{c.phone}</strong>
+              <strong style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {c.contactName ?? c.phone}
+              </strong>
               {c.lastMessageAt && (
                 <span style={{ fontSize: 10, color: 'var(--text-dimmed, #888)', whiteSpace: 'nowrap' }}>
                   {fmtDatetime(c.lastMessageAt)}
                 </span>
               )}
             </div>
+            {c.contactName && (
+              <div style={{ fontSize: 11, color: 'var(--text-dimmed, #888)', marginTop: 1 }}>
+                {c.phone}
+              </div>
+            )}
             {c.lastMessagePreview && (
               <div style={{ fontSize: 12, color: 'var(--text-dimmed, #888)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {c.lastMessagePreview}
@@ -123,11 +165,20 @@ function ChatsView({ organizationId }: { organizationId: string }) {
         )}
       </div>
 
-      <div className="gt-card" style={{ display: 'grid', gap: 12 }}>
+      <div
+        className="gt-card"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+          height: '100%',
+          minHeight: 0,
+        }}
+      >
         {!selected && <span className="gt-muted">Selecciona un chat.</span>}
         {selected && (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
               <button
                 onClick={() => toggleBot(selected, !(selectedChat?.botEnabled ?? true))}
                 style={{
@@ -157,11 +208,14 @@ function ChatsView({ organizationId }: { organizationId: string }) {
               </button>
             </div>
             <div
+              ref={messagesContainerRef}
+              onScroll={handleMessagesScroll}
               style={{
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 8,
-                maxHeight: 400,
+                flex: 1,
+                minHeight: 0,
                 overflowY: 'auto',
                 padding: '4px 2px',
               }}
@@ -210,17 +264,17 @@ function ChatsView({ organizationId }: { organizationId: string }) {
                   </div>
                 );
               })}
-              <div ref={messagesEndRef} />
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
               <input
                 className="gt-input"
+                style={{ flex: 1, minWidth: 0, fontSize: 14 }}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="Escribe un mensaje..."
                 onKeyDown={(e) => e.key === 'Enter' && send()}
               />
-              <button className="gt-btn" onClick={send}>
+              <button className="gt-btn" style={{ flexShrink: 0 }} onClick={send}>
                 Enviar
               </button>
             </div>

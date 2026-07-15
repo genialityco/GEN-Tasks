@@ -29,7 +29,9 @@ import {
   snapshotToEntities,
 } from '../firebase/firestore.helpers';
 import { evaluateConditions } from '../common/rule-evaluation';
+import { normalizePhoneForWhatsApp } from '../common/phone';
 import { HostsService } from '../hosts/hosts.service';
+import { UsersService } from '../users/users.service';
 import { WhatsappCloudApiService } from './whatsapp-cloud-api.service';
 import { OrganizationResolverService } from './organization-resolver.service';
 
@@ -70,6 +72,7 @@ export class WhatsappService {
     private readonly hosts: HostsService,
     private readonly cloudApi: WhatsappCloudApiService,
     private readonly orgResolver: OrganizationResolverService,
+    private readonly users: UsersService,
   ) {}
 
   private get chats() {
@@ -107,10 +110,41 @@ export class WhatsappService {
     const snap = await this.chats
       .where('organizationId', '==', organizationId)
       .get();
-    const chats = snapshotToEntities<WhatsappChat>(snap);
-    return chats.sort((a, b) =>
+    const chats = snapshotToEntities<WhatsappChat>(snap).sort((a, b) =>
       (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''),
     );
+
+    // Cruza el telefono del chat con los miembros de la organizacion (admins y
+    // gestores) para mostrar su nombre en lugar del numero crudo. Los numeros
+    // externos (hosts) se quedan sin contactName.
+    const memberNamesByPhone =
+      await this.buildMemberNamesByPhone(organizationId);
+    return chats.map((chat) => {
+      const normalized = normalizePhoneForWhatsApp(chat.phone);
+      const contactName = normalized
+        ? memberNamesByPhone.get(normalized)
+        : undefined;
+      return contactName ? { ...chat, contactName } : chat;
+    });
+  }
+
+  /**
+   * Mapa telefono-normalizado -> nombre para los miembros (admin/gestor) de una
+   * organizacion, usado para etiquetar los chats con el nombre del gestor/admin.
+   */
+  private async buildMemberNamesByPhone(
+    organizationId: string,
+  ): Promise<Map<string, string>> {
+    const members = await this.users.listOrganizationMembers(organizationId);
+    const map = new Map<string, string>();
+    await Promise.all(
+      members.map(async (member) => {
+        const user = await this.users.findByIdOrNull(member.userId);
+        const normalized = normalizePhoneForWhatsApp(user?.phone);
+        if (normalized && member.name) map.set(normalized, member.name);
+      }),
+    );
+    return map;
   }
 
   async listMessages(chatId: string): Promise<WhatsappMessage[]> {

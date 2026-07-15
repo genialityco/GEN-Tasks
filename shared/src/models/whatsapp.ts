@@ -48,6 +48,12 @@ export interface WhatsappChat {
   botEnabled: boolean;
   lastMessageAt?: IsoDate;
   lastMessagePreview?: string;
+  /**
+   * Nombre legible del contacto cuando el telefono corresponde a un miembro de
+   * la organizacion (admin o gestor). Se resuelve al listar los chats cruzando
+   * el telefono con los miembros; ausente para numeros externos.
+   */
+  contactName?: string;
   createdAt: IsoDate;
   updatedAt: IsoDate;
 }
