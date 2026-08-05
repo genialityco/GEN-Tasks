@@ -705,6 +705,7 @@ export function ActivityDetail({
                   <FileFieldUploader
                     key={field.id}
                     projectId={project.id}
+                    activityId={activity.id}
                     type={normalizeType(field.type) ?? field.type}
                     label={`${field.label}${field.required ? " *" : ""}`}
                     value={value}

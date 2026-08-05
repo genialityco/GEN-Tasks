@@ -639,6 +639,52 @@ export class ActivitiesService {
   }
 
   // ----------------------------------------------------------------------
+  // Descarga de adjuntos (campos FILE / IMAGE / VIDEO)
+  // ----------------------------------------------------------------------
+
+  /**
+   * Devuelve una URL firmada que fuerza la descarga de un adjunto concreto de la
+   * actividad. Valida el acceso a la actividad y que el `path` pertenezca a uno
+   * de sus adjuntos (evita descargar rutas arbitrarias del bucket).
+   */
+  async getAttachmentDownloadUrl(
+    activityId: string,
+    path: string,
+    user: AuthenticatedUser,
+  ): Promise<{ url: string }> {
+    const activity = await this.loadAccessibleActivity(activityId, user);
+    const attachment = this.collectAttachments(activity).find(
+      (a) => a.path === path,
+    );
+    if (!attachment) {
+      throw new NotFoundException('Adjunto no encontrado en la actividad.');
+    }
+    const url = await this.storage.signedDownloadUrl(
+      attachment.path,
+      attachment.name,
+    );
+    return { url };
+  }
+
+  /** Todos los adjuntos de la actividad, recorriendo todos los campos. */
+  private collectAttachments(activity: Activity): ActivityFileAttachment[] {
+    const values = activity.customFieldValues ?? {};
+    return Object.values(values).flatMap((v) => this.toAttachments(v));
+  }
+
+  /** Convierte el valor crudo de un campo a un arreglo de adjuntos validos. */
+  private toAttachments(value: unknown): ActivityFileAttachment[] {
+    if (!Array.isArray(value)) return [];
+    return value.filter(
+      (a): a is ActivityFileAttachment =>
+        !!a &&
+        typeof a === 'object' &&
+        typeof (a as ActivityFileAttachment).path === 'string' &&
+        typeof (a as ActivityFileAttachment).name === 'string',
+    );
+  }
+
+  // ----------------------------------------------------------------------
   // Helpers internos
   // ----------------------------------------------------------------------
 

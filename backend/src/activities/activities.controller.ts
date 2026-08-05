@@ -131,4 +131,17 @@ export class ActivitiesController {
   ) {
     return this.activities.getHistory(activityId, user);
   }
+
+  /**
+   * URL firmada que fuerza la descarga (Content-Disposition: attachment) de un
+   * adjunto concreto de la actividad. El cliente navega a la URL devuelta.
+   */
+  @Get('activities/:activityId/attachments/download')
+  downloadAttachment(
+    @Param('activityId') activityId: string,
+    @Query('path') path: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.activities.getAttachmentDownloadUrl(activityId, path, user);
+  }
 }

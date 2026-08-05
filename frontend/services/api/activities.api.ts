@@ -75,6 +75,26 @@ export const activitiesApi = {
       `/projects/${projectId}/uploads`,
       file,
     ),
+  /**
+   * Descarga un adjunto concreto de la actividad. Pide al backend una URL
+   * firmada que fuerza la descarga y navega a ella.
+   */
+  downloadAttachment: async (
+    activityId: string,
+    attachment: ActivityFileAttachment,
+  ) => {
+    const { url } = await apiClient.get<{ url: string }>(
+      `/activities/${activityId}/attachments/download?path=${encodeURIComponent(
+        attachment.path,
+      )}`,
+    );
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = attachment.name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  },
   /** Importa actividades desde filas de Excel ya parseadas. */
   importActivities: (
     projectId: string,

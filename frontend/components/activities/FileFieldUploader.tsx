@@ -12,7 +12,12 @@ import {
   ActionIcon,
   Tooltip,
 } from '@mantine/core';
-import { IconUpload, IconTrash, IconFile } from '@tabler/icons-react';
+import {
+  IconUpload,
+  IconTrash,
+  IconFile,
+  IconDownload,
+} from '@tabler/icons-react';
 import { CustomFieldType, type ActivityFileAttachment } from '@gen-task/shared';
 import { activitiesApi } from '../../services/api/activities.api';
 
@@ -47,6 +52,7 @@ export function FileFieldUploader({
   value,
   onChange,
   disabled,
+  activityId,
 }: {
   projectId: string;
   type: CustomFieldType;
@@ -54,11 +60,46 @@ export function FileFieldUploader({
   value: unknown;
   onChange: (v: ActivityFileAttachment[] | undefined) => void;
   disabled?: boolean;
+  /**
+   * Habilita la descarga de adjuntos ya guardados (desde el detalle de la
+   * actividad). Ausente durante la creacion: entonces no se ofrece descarga.
+   */
+  activityId?: string;
 }) {
   const attachments = toAttachments(value);
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [downloadingAll, setDownloadingAll] = useState(false);
+  const canDownload = Boolean(activityId);
+
+  async function downloadOne(attachment: ActivityFileAttachment) {
+    if (!activityId) return;
+    setError(null);
+    try {
+      await activitiesApi.downloadAttachment(activityId, attachment);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function downloadAll() {
+    if (!activityId) return;
+    setError(null);
+    setDownloadingAll(true);
+    try {
+      // Descarga cada adjunto por separado. Se separan las descargas para que el
+      // navegador no descarte las que llegan casi simultaneas.
+      for (const att of attachments) {
+        await activitiesApi.downloadAttachment(activityId, att);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDownloadingAll(false);
+    }
+  }
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -97,8 +138,23 @@ export function FileFieldUploader({
               attachment={att}
               type={type}
               onRemove={disabled ? undefined : () => remove(att.path)}
+              onDownload={canDownload ? () => downloadOne(att) : undefined}
             />
           ))}
+        </Group>
+      )}
+
+      {canDownload && attachments.length > 1 && (
+        <Group gap="xs">
+          <Button
+            size="xs"
+            variant="subtle"
+            leftSection={<IconDownload size={14} />}
+            loading={downloadingAll}
+            onClick={downloadAll}
+          >
+            Descargar todo
+          </Button>
         </Group>
       )}
 
@@ -137,10 +193,12 @@ function AttachmentPreview({
   attachment,
   type,
   onRemove,
+  onDownload,
 }: {
   attachment: ActivityFileAttachment;
   type: CustomFieldType;
   onRemove?: () => void;
+  onDownload?: () => void;
 }) {
   const isImage =
     type === CustomFieldType.IMAGE ||
@@ -158,6 +216,20 @@ function AttachmentPreview({
         padding: 4,
       }}
     >
+      {onDownload && (
+        <Tooltip label={`Descargar ${attachment.name}`} withArrow>
+          <ActionIcon
+            size="sm"
+            color="blue"
+            variant="filled"
+            style={{ position: 'absolute', top: -8, left: -8, zIndex: 1 }}
+            onClick={onDownload}
+          >
+            <IconDownload size={12} />
+          </ActionIcon>
+        </Tooltip>
+      )}
+
       {onRemove && (
         <Tooltip label="Quitar" withArrow>
           <ActionIcon

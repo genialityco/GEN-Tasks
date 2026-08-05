@@ -16,6 +16,8 @@ async function bootstrap(): Promise<void> {
   app.enableCors({
     origin: config.get<string>('FRONTEND_ORIGIN') ?? 'http://localhost:3000',
     credentials: true,
+    // Permite que el frontend lea el nombre de archivo en descargas (ZIP).
+    exposedHeaders: ['Content-Disposition'],
   });
 
   // Validacion automatica de DTOs.

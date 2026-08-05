@@ -45,4 +45,20 @@ export class StorageService {
 
     return { path, url };
   }
+
+  /**
+   * Genera una URL firmada que fuerza la descarga (Content-Disposition:
+   * attachment) con el nombre original del archivo, en lugar de mostrarlo en el
+   * navegador. Se firma en cada solicitud (vida corta) para no persistirla.
+   */
+  async signedDownloadUrl(path: string, fileName: string): Promise<string> {
+    const file = this.firebase.storage.bucket().file(path);
+    const safeName = fileName.replace(/["\\\r\n]/g, '_');
+    const [url] = await file.getSignedUrl({
+      action: 'read',
+      expires: Date.now() + 15 * 60 * 1000, // 15 minutos.
+      responseDisposition: `attachment; filename="${safeName}"`,
+    });
+    return url;
+  }
 }
