@@ -1,5 +1,17 @@
-import type { WhatsappChat, WhatsappMessage } from '@gen-task/shared';
+import type {
+  WhatsappChat,
+  WhatsappMessage,
+  WhatsappTemplateName,
+} from '@gen-task/shared';
 import { apiClient } from './client';
+
+/** Cuerpo de un envio de prueba: texto libre (`body`) o plantilla Meta. */
+export interface SendTestMessagePayload {
+  phone: string;
+  body?: string;
+  templateName?: WhatsappTemplateName;
+  templateParams?: string[];
+}
 
 export const whatsappApi = {
   listChats: (organizationId: string) =>
@@ -20,4 +32,9 @@ export const whatsappApi = {
     apiClient.post<WhatsappMessage>(`/whatsapp/chats/${chatId}/request-info`, {
       body,
     }),
+  sendTestMessage: (organizationId: string, payload: SendTestMessagePayload) =>
+    apiClient.post<{ sent: true }>(
+      `/organizations/${organizationId}/whatsapp/test-message`,
+      payload,
+    ),
 };

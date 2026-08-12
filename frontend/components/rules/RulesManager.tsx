@@ -26,6 +26,7 @@ import {
   RuleEvent,
   UserRole,
   WhatsappRecipientType,
+  WhatsappTemplateName,
   type ActivityCustomField,
   type OrganizationMember,
   type ProjectRule,
@@ -34,6 +35,7 @@ import {
 } from '@gen-task/shared';
 import { rulesApi } from '../../services/api/rules.api';
 import { organizationsApi } from '../../services/api/organizations.api';
+import { whatsappApi } from '../../services/api/whatsapp.api';
 import { useAsync } from '../../hooks/useAsync';
 import { useToast } from '../toast/ToastProvider';
 import {
@@ -98,6 +100,40 @@ const NOTIFICATION_CHANNEL_LABELS: Record<NotificationChannel, string> = {
   BOTH: 'Ambos',
 };
 
+/** Acciones que permiten elegir modo plantilla Meta (en vez de texto libre). */
+const WHATSAPP_TEMPLATE_ACTIONS: RuleActionType[] = [RuleActionType.SEND_WHATSAPP];
+
+/**
+ * Plantillas de WhatsApp (Meta Business) disponibles, aprobadas en español.
+ * Deben existir en el WhatsApp Manager con estos nombres exactos. La genérica
+ * usa el mensaje libre de abajo como {{2}}; las demás autocompletan sus
+ * variables desde la actividad/proyecto (no necesitan mensaje).
+ */
+const WHATSAPP_TEMPLATE_LABELS: Record<WhatsappTemplateName, string> = {
+  [WhatsappTemplateName.NOTIFICACION_ACTIVIDAD_UTILIDAD]: 'Genérica (mensaje libre)',
+  [WhatsappTemplateName.ACTIVIDAD_INSUMO_CARGADO]: 'Insumo cargado',
+  [WhatsappTemplateName.ACTIVIDAD_APROBACION_PIEZAS]: 'Aprobación de piezas',
+  [WhatsappTemplateName.ACTIVIDAD_EN_MONTAJE]: 'En montaje',
+  [WhatsappTemplateName.ACTIVIDAD_ENLACE_PUBLICADO]: 'Enlace publicado',
+  [WhatsappTemplateName.ACTIVIDAD_INFORME_DISPONIBLE]: 'Informe disponible',
+};
+
+/** Aclara, debajo del selector de plantilla, que variables se autocompletan. */
+const WHATSAPP_TEMPLATE_HINTS: Record<WhatsappTemplateName, string> = {
+  [WhatsappTemplateName.NOTIFICACION_ACTIVIDAD_UTILIDAD]:
+    '{{1}} = nombre del destinatario · {{2}} = el mensaje que escribas abajo.',
+  [WhatsappTemplateName.ACTIVIDAD_INSUMO_CARGADO]:
+    'Se completa automáticamente: {{1}} nombre del destinatario, {{2}} actividad, {{3}} proyecto.',
+  [WhatsappTemplateName.ACTIVIDAD_APROBACION_PIEZAS]:
+    'Se completa automáticamente: {{1}} nombre del destinatario, {{2}} actividad.',
+  [WhatsappTemplateName.ACTIVIDAD_EN_MONTAJE]:
+    'Se completa automáticamente: {{1}} nombre del destinatario, {{2}} actividad.',
+  [WhatsappTemplateName.ACTIVIDAD_ENLACE_PUBLICADO]:
+    'Se completa automáticamente: {{1}} nombre del destinatario, {{2}} actividad.',
+  [WhatsappTemplateName.ACTIVIDAD_INFORME_DISPONIBLE]:
+    'Se completa automáticamente: {{1}} nombre del destinatario, {{2}} actividad.',
+};
+
 /** Borrador de un campo a crear por la accion CREATE_CUSTOM_FIELD. */
 interface FieldDraft {
   label: string;
@@ -128,6 +164,8 @@ interface ActionDraft {
   recipientType: WhatsappRecipientType;
   /** Telefono fijo cuando el destinatario es PHONE. */
   recipientPhone: string;
+  /** Plantilla Meta a usar (SEND_WHATSAPP). Vacio = texto libre (comportamiento previo). */
+  templateName: WhatsappTemplateName | '';
   /** Canal por el que se notifica al responsable (ASSIGN_RESPONSIBLE). */
   notificationChannel: NotificationChannel;
   /** Campos a crear (CREATE_CUSTOM_FIELD). */
@@ -143,6 +181,7 @@ function emptyActionDraft(): ActionDraft {
     responsibleId: '',
     recipientType: WhatsappRecipientType.HOST,
     recipientPhone: '',
+    templateName: '',
     notificationChannel: NotificationChannel.WHATSAPP,
     cfDrafts: [emptyFieldDraft()],
   };
@@ -169,6 +208,9 @@ function buildActionPayload(a: ActionDraft): {
     if (a.recipientType === WhatsappRecipientType.PHONE) {
       payload.recipientPhone = a.recipientPhone.trim();
     }
+  }
+  if (WHATSAPP_TEMPLATE_ACTIONS.includes(a.type) && a.templateName) {
+    payload.templateName = a.templateName;
   }
   if (a.type === RuleActionType.CHANGE_STATUS) {
     payload.statusId = a.statusId;
@@ -241,6 +283,10 @@ function actionToDraft(a: RuleAction): ActionDraft {
     recipientType:
       (p.recipientType as WhatsappRecipientType) ?? WhatsappRecipientType.HOST,
     recipientPhone: typeof p.recipientPhone === 'string' ? p.recipientPhone : '',
+    templateName:
+      typeof p.templateName === 'string'
+        ? (p.templateName as WhatsappTemplateName)
+        : '',
     notificationChannel:
       (p.notificationChannel as NotificationChannel) ?? NotificationChannel.WHATSAPP,
     cfDrafts: fields.length ? fields.map(fieldToDraft) : [emptyFieldDraft()],
@@ -279,6 +325,48 @@ function messageVars(event: RuleEvent, fields: ActivityCustomField[]): MessageVa
     if (f.isActive && !f.isArchived) out.push({ key: f.key, label: f.label });
   }
   return out;
+}
+
+/** Valores de ejemplo usados para previsualizar variables al enviar una prueba. */
+const SAMPLE_VALUES: Record<string, string> = {
+  activityName: 'Banner Principal',
+  statusName: 'En Montaje',
+  projectName: 'Campaña Verano 2026',
+  organizationName: 'Tu organización',
+  link: 'https://app.gen-task.com/actividades/123',
+  fromStatusName: 'Aprobación de Piezas',
+  toStatusName: 'En Montaje',
+  updatedFields: 'Enlace del evento',
+};
+
+/** Reemplaza `{{clave}}` por valores de ejemplo, para previsualizar un mensaje de prueba. */
+function interpolateWithSamples(text: string, fields: ActivityCustomField[]): string {
+  const vars: Record<string, string> = { ...SAMPLE_VALUES };
+  for (const f of fields) {
+    if (f.isActive && !f.isArchived) vars[f.key] = `[${f.label}]`;
+  }
+  return text.replace(/\{\{(\w+)\}\}/g, (match, key) => vars[key] ?? match);
+}
+
+/**
+ * Parametros posicionales de ejemplo ({{1}}, {{2}}, ...) para probar una
+ * plantilla Meta, replicando la logica de `buildTemplateParams` del backend
+ * (que ahi usa datos reales de la actividad/destinatario).
+ */
+function sampleTemplateParams(
+  templateName: WhatsappTemplateName,
+  freeMessage: string,
+): string[] {
+  const nombre = 'Nombre de prueba';
+  const actividad = SAMPLE_VALUES.activityName;
+  const proyecto = SAMPLE_VALUES.projectName;
+  if (templateName === WhatsappTemplateName.NOTIFICACION_ACTIVIDAD_UTILIDAD) {
+    return [nombre, freeMessage.trim() || actividad];
+  }
+  if (templateName === WhatsappTemplateName.ACTIVIDAD_INSUMO_CARGADO) {
+    return [nombre, actividad, proyecto];
+  }
+  return [nombre, actividad];
 }
 
 /**
@@ -435,7 +523,12 @@ export function RulesManager({
       }
       const label =
         a.type === RuleActionType.SEND_WHATSAPP ? 'Enviar WhatsApp a' : 'Solicitar info a';
-      return `${label}: ${recipDesc}`;
+      const templateName = p.templateName as WhatsappTemplateName | undefined;
+      const templateSuffix =
+        templateName && WHATSAPP_TEMPLATE_LABELS[templateName]
+          ? ` (plantilla: ${WHATSAPP_TEMPLATE_LABELS[templateName]})`
+          : '';
+      return `${label}: ${recipDesc}${templateSuffix}`;
     }
     return ACTION_LABELS[a.type];
   }
@@ -495,6 +588,7 @@ export function RulesManager({
         <RuleFormModal
           rule={editTarget === 'new' ? null : editTarget}
           projectId={projectId}
+          organizationId={organizationId}
           members={members ?? []}
           fields={fields}
           statuses={statuses}
@@ -518,6 +612,7 @@ export function RulesManager({
 function RuleFormModal({
   rule,
   projectId,
+  organizationId,
   members,
   fields,
   statuses,
@@ -526,6 +621,7 @@ function RuleFormModal({
 }: {
   rule: ProjectRule | null;
   projectId: string;
+  organizationId: string;
   members: OrganizationMember[];
   fields: ActivityCustomField[];
   statuses: ProjectStatus[];
@@ -556,6 +652,45 @@ function RuleFormModal({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Telefono de prueba por accion (indice) y cual esta enviando ahora mismo.
+  const [testPhones, setTestPhones] = useState<Record<number, string>>({});
+  const [testingIndex, setTestingIndex] = useState<number | null>(null);
+
+  async function sendTestMessage(actionIndex: number) {
+    const act = actions[actionIndex];
+    const phone = (testPhones[actionIndex] ?? '').trim();
+    if (!phone) {
+      toast.error('Ingresa un teléfono para la prueba.');
+      return;
+    }
+    setTestingIndex(actionIndex);
+    try {
+      if (act.templateName) {
+        const templateParams = sampleTemplateParams(
+          act.templateName,
+          interpolateWithSamples(act.message, fields),
+        );
+        await whatsappApi.sendTestMessage(organizationId, {
+          phone,
+          templateName: act.templateName,
+          templateParams,
+        });
+      } else {
+        const body = interpolateWithSamples(act.message, fields);
+        if (!body.trim()) {
+          toast.error('Escribe un mensaje antes de enviar la prueba.');
+          return;
+        }
+        await whatsappApi.sendTestMessage(organizationId, { phone, body });
+      }
+      toast.success('Mensaje de prueba enviado.');
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setTestingIndex(null);
+    }
+  }
 
   const activeStatuses = statuses.filter((s) => !s.isArchived);
   const statusSelectData = activeStatuses.map((s) => ({ value: s.id, label: s.name }));
@@ -863,6 +998,24 @@ function RuleFormModal({
                       w={200}
                     />
                   )}
+                {WHATSAPP_TEMPLATE_ACTIONS.includes(act.type) && (
+                  <Select
+                    label="Plantilla de WhatsApp"
+                    description="Meta requiere plantillas aprobadas fuera de la ventana de 24h"
+                    data={[
+                      { value: '', label: '— Texto libre —' },
+                      ...(Object.keys(WHATSAPP_TEMPLATE_LABELS) as WhatsappTemplateName[]).map(
+                        (t) => ({ value: t, label: WHATSAPP_TEMPLATE_LABELS[t] }),
+                      ),
+                    ]}
+                    value={act.templateName}
+                    onChange={(v) =>
+                      updateAction(ai, { templateName: (v ?? '') as WhatsappTemplateName | '' })
+                    }
+                    allowDeselect={false}
+                    w={260}
+                  />
+                )}
                 {actions.length > 1 && (
                   <Tooltip label="Quitar acción" withArrow>
                     <ActionIcon
@@ -877,15 +1030,52 @@ function RuleFormModal({
                 )}
               </Group>
 
-              {MESSAGE_ACTIONS.includes(act.type) && (
-                <RuleMessageField
-                  label="Mensaje / comentario"
-                  placeholder="Ej: Se actualizó el campo {{updatedFields}} en {{activityName}}"
-                  value={act.message}
-                  onChange={(v) => updateAction(ai, { message: v })}
-                  event={event}
-                  fields={fields}
-                />
+              {WHATSAPP_TEMPLATE_ACTIONS.includes(act.type) && act.templateName && (
+                <Alert color="blue" variant="light">
+                  {WHATSAPP_TEMPLATE_HINTS[act.templateName]}
+                </Alert>
+              )}
+
+              {MESSAGE_ACTIONS.includes(act.type) &&
+                (!WHATSAPP_TEMPLATE_ACTIONS.includes(act.type) ||
+                  !act.templateName ||
+                  act.templateName === WhatsappTemplateName.NOTIFICACION_ACTIVIDAD_UTILIDAD) && (
+                  <RuleMessageField
+                    label={
+                      act.templateName === WhatsappTemplateName.NOTIFICACION_ACTIVIDAD_UTILIDAD
+                        ? 'Mensaje ({{2}} de la plantilla)'
+                        : 'Mensaje / comentario'
+                    }
+                    placeholder="Ej: Se actualizó el campo {{updatedFields}} en {{activityName}}"
+                    value={act.message}
+                    onChange={(v) => updateAction(ai, { message: v })}
+                    event={event}
+                    fields={fields}
+                  />
+                )}
+
+              {WHATSAPP_RECIPIENT_ACTIONS.includes(act.type) && (
+                <Group gap="sm" align="flex-end" wrap="wrap">
+                  <TextInput
+                    label="Probar envío"
+                    description="Envía este mensaje/plantilla a un teléfono, con datos de ejemplo"
+                    placeholder="Ej: 573001234567"
+                    value={testPhones[ai] ?? ''}
+                    onChange={(e) => {
+                      const value = e.currentTarget.value;
+                      setTestPhones((prev) => ({ ...prev, [ai]: value }));
+                    }}
+                    w={220}
+                  />
+                  <Button
+                    type="button"
+                    variant="light"
+                    loading={testingIndex === ai}
+                    onClick={() => sendTestMessage(ai)}
+                  >
+                    Enviar prueba
+                  </Button>
+                </Group>
               )}
 
               {act.type === RuleActionType.ASSIGN_RESPONSIBLE && (
