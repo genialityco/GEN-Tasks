@@ -89,6 +89,26 @@ export enum WhatsappRecipientType {
 }
 
 /**
+ * Nombres (tal como fueron aprobados en Meta Business/WhatsApp Manager) de las
+ * plantillas de mensaje disponibles para la accion SEND_WHATSAPP en modo
+ * plantilla. Todas estan configuradas en espanol.
+ *
+ * - NOTIFICACION_ACTIVIDAD_UTILIDAD: plantilla generica de un solo mensaje
+ *   libre ({{1}} nombre, {{2}} texto libre). Mayor riesgo de rechazo/baja
+ *   calidad en Meta por ser muy libre; se mantiene como respaldo generico.
+ * - Las demas son plantillas especificas por evento de actividad
+ *   ({{1}} nombre, {{2}} actividad, y {{3}} proyecto solo en INSUMO_CARGADO).
+ */
+export enum WhatsappTemplateName {
+  NOTIFICACION_ACTIVIDAD_UTILIDAD = 'notificacion_actividad_utilidad',
+  ACTIVIDAD_INSUMO_CARGADO = 'actividad_insumo_cargado',
+  ACTIVIDAD_APROBACION_PIEZAS = 'actividad_aprobacion_piezas',
+  ACTIVIDAD_EN_MONTAJE = 'actividad_en_montaje',
+  ACTIVIDAD_ENLACE_PUBLICADO = 'actividad_enlace_publicado',
+  ACTIVIDAD_INFORME_DISPONIBLE = 'actividad_informe_disponible',
+}
+
+/**
  * Medio por el que se entrega una notificacion. Si una plantilla no define
  * canal, el valor por defecto es WHATSAPP.
  */

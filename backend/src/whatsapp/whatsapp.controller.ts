@@ -15,13 +15,16 @@ import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { OrganizationAccessGuard } from '../common/guards/organization-access.guard';
+import { normalizePhoneForWhatsApp } from '../common/phone';
 import {
   NormalizedInboundMessage,
   WhatsappService,
 } from './whatsapp.service';
+import { WhatsappTemplatesService } from './whatsapp-templates.service';
 import {
   RequestInfoDto,
   SendMessageDto,
+  SendTestMessageDto,
   ToggleBotDto,
 } from './dto/whatsapp.dto';
 
@@ -33,6 +36,7 @@ import {
 export class WhatsappController {
   constructor(
     private readonly whatsapp: WhatsappService,
+    private readonly whatsappTemplates: WhatsappTemplatesService,
     private readonly config: ConfigService,
   ) {}
 
@@ -75,6 +79,39 @@ export class WhatsappController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   listChats(@Param('organizationId') organizationId: string) {
     return this.whatsapp.listChats(organizationId);
+  }
+
+  /**
+   * Envia un mensaje de prueba (texto libre o plantilla Meta) a un telefono
+   * arbitrario. Usado por el formulario de automatizaciones para verificar,
+   * antes de guardar la regla, que el mensaje/plantilla configurado realmente
+   * se entrega.
+   */
+  @Post('organizations/:organizationId/whatsapp/test-message')
+  @UseGuards(RolesGuard, OrganizationAccessGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  async sendTestMessage(
+    @Param('organizationId') organizationId: string,
+    @Body() dto: SendTestMessageDto,
+  ): Promise<{ sent: true }> {
+    const phone = normalizePhoneForWhatsApp(dto.phone);
+    if (!phone) {
+      throw new BadRequestException('Telefono invalido.');
+    }
+    if (dto.templateName) {
+      await this.whatsappTemplates.sendByTemplateName(
+        organizationId,
+        phone,
+        dto.templateName,
+        dto.templateParams ?? [],
+      );
+    } else {
+      if (!dto.body?.trim()) {
+        throw new BadRequestException('Falta el mensaje a enviar.');
+      }
+      await this.whatsapp.sendBotMessageToPhone(organizationId, phone, dto.body);
+    }
+    return { sent: true };
   }
 
   @Get('whatsapp/chats/:chatId/messages')

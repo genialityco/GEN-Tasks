@@ -14,6 +14,7 @@ import {
   User,
   UserRole,
   WhatsappRecipientType,
+  WhatsappTemplateName,
 } from '@gen-task/shared';
 import { FirebaseService } from '../firebase/firebase.service';
 import { docToEntity } from '../firebase/firestore.helpers';
@@ -25,6 +26,7 @@ import {
 } from '../common/template-vars';
 import { ActivityHistoryService } from '../activity-history/activity-history.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { WhatsappTemplatesService } from '../whatsapp/whatsapp-templates.service';
 import { ProjectsService } from '../projects/projects.service';
 import { normalizePhoneForWhatsApp } from '../common/phone';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -55,6 +57,7 @@ export class RuleEngineService {
     private readonly firebase: FirebaseService,
     private readonly history: ActivityHistoryService,
     private readonly whatsapp: WhatsappService,
+    private readonly whatsappTemplates: WhatsappTemplatesService,
     private readonly projects: ProjectsService,
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
@@ -372,19 +375,27 @@ export class RuleEngineService {
           );
           return activity;
         }
+        // Modo plantilla Meta: `payload.templateName` selecciona una de las
+        // plantillas aprobadas (ver WhatsappTemplateName). Si no se define,
+        // se mantiene el modo de texto libre (compatibilidad con reglas
+        // existentes).
+        const templateName = payload.templateName as
+          | WhatsappTemplateName
+          | undefined;
         const rawMessage = payload.message as string | undefined;
-        if (!rawMessage) {
+        if (!templateName && !rawMessage) {
           this.logger.debug(
-            `Accion WhatsApp de la regla "${rule.name}" sin mensaje; omitida.`,
+            `Accion WhatsApp de la regla "${rule.name}" sin plantilla ni mensaje; omitida.`,
           );
           return activity;
         }
         // Reemplaza las variables de la actividad/evento ({{activityName}},
         // {{statusName}}, {{toStatusName}}, {{updatedFields}}, campos, etc.).
-        const message = interpolate(
-          rawMessage,
-          buildActivityVars(activity, project, varOpts),
-        );
+        // En modo plantilla, `message` solo se usa como {{2}} de la plantilla
+        // generica NOTIFICACION_ACTIVIDAD_UTILIDAD (texto libre opcional).
+        const message = rawMessage
+          ? interpolate(rawMessage, buildActivityVars(activity, project, varOpts))
+          : undefined;
         const recipients = await this.resolveRecipients(payload, activity);
         if (recipients.length === 0) {
           this.logger.debug(
@@ -396,11 +407,27 @@ export class RuleEngineService {
           // Todos los destinatarios (contactos externos o personal interno)
           // quedan registrados como chat, para que el mensaje sea visible en
           // la ventana de Chats WhatsApp.
-          await this.whatsapp.sendBotMessageToPhone(
-            activity.organizationId,
-            r.phone,
-            message,
-          );
+          if (templateName) {
+            const params = this.buildTemplateParams(
+              templateName,
+              r.name,
+              activity,
+              project,
+              message,
+            );
+            await this.whatsappTemplates.sendByTemplateName(
+              activity.organizationId,
+              r.phone,
+              templateName,
+              params,
+            );
+          } else {
+            await this.whatsapp.sendBotMessageToPhone(
+              activity.organizationId,
+              r.phone,
+              message!,
+            );
+          }
         }
         await this.history.recordNotification({
           activityId: activity.id,
@@ -426,25 +453,31 @@ export class RuleEngineService {
   }
 
   /**
-   * Resuelve los telefonos destinatarios de una accion de WhatsApp segun
-   * `payload.recipientType`. Si no se especifica, por compatibilidad se usa el
-   * host de la actividad. Devuelve telefonos normalizados y sin duplicados.
+   * Resuelve los telefonos (y, si estan disponibles, nombres) destinatarios de
+   * una accion de WhatsApp segun `payload.recipientType`. Si no se
+   * especifica, por compatibilidad se usa el host de la actividad. Devuelve
+   * telefonos normalizados y sin duplicados. El nombre se usa como {{1}} en
+   * modo plantilla; cuando no se conoce (p. ej. PHONE) se usa "Hola" generico.
    */
   private async resolveRecipients(
     payload: Record<string, unknown>,
     activity: Activity,
-  ): Promise<{ phone: string }[]> {
+  ): Promise<{ phone: string; name?: string }[]> {
     const type =
       (payload.recipientType as WhatsappRecipientType | undefined) ??
       WhatsappRecipientType.HOST;
 
     this.logger.debug(`Resolviendo destinatarios WhatsApp (tipo=${type}).`);
 
-    const out: { phone: string }[] = [];
-    const add = (phone: string | null | undefined, who: string) => {
+    const out: { phone: string; name?: string }[] = [];
+    const add = (
+      phone: string | null | undefined,
+      who: string,
+      name?: string,
+    ) => {
       const p = normalizePhoneForWhatsApp(phone);
       if (p) {
-        out.push({ phone: p });
+        out.push({ phone: p, name });
       } else {
         this.logger.debug(
           `  ${who}: telefono ausente o invalido (valor=${JSON.stringify(phone)}); descartado.`,
@@ -458,12 +491,17 @@ export class RuleEngineService {
           this.logger.debug('  HOST: la actividad no tiene hostId.');
           break;
         }
-        add(await this.resolveActivityPhone(activity), `host ${activity.hostId}`);
+        const host = await this.resolveActivityHost(activity);
+        add(host?.phone, `host ${activity.hostId}`, host?.name);
         break;
       }
 
       case WhatsappRecipientType.PHONE:
-        add(payload.recipientPhone as string | undefined, 'telefono fijo del payload');
+        add(
+          payload.recipientPhone as string | undefined,
+          'telefono fijo del payload',
+          payload.recipientName as string | undefined,
+        );
         break;
 
       case WhatsappRecipientType.MEMBER: {
@@ -477,7 +515,7 @@ export class RuleEngineService {
           this.logger.debug(`  MEMBER: usuario ${userId} no encontrado.`);
           break;
         }
-        add(user.phone ?? null, `miembro ${userId}`);
+        add(user.phone ?? null, `miembro ${userId}`, user.name);
         break;
       }
 
@@ -493,7 +531,7 @@ export class RuleEngineService {
             this.logger.debug(`  RESPONSIBLES: usuario ${userId} no encontrado.`);
             continue;
           }
-          add(user.phone ?? null, `responsable ${userId}`);
+          add(user.phone ?? null, `responsable ${userId}`, user.name);
         }
         break;
       }
@@ -504,18 +542,41 @@ export class RuleEngineService {
     return out.filter((r) => (seen.has(r.phone) ? false : seen.add(r.phone)));
   }
 
-  /** Resuelve el telefono del host asociado a la actividad (si lo hay). */
-  private async resolveActivityPhone(
-    activity: Activity,
-  ): Promise<string | null> {
+  /** Resuelve el host asociado a la actividad (si lo hay). */
+  private async resolveActivityHost(activity: Activity): Promise<Host | null> {
     if (!activity.hostId) return null;
-    const host = docToEntity<Host>(
+    return docToEntity<Host>(
       await this.firebase.firestore
         .collection(FirestoreCollections.HOSTS)
         .doc(activity.hostId)
         .get(),
     );
-    return host?.phone ?? null;
+  }
+
+  /**
+   * Construye los parametros posicionales ({{1}}, {{2}}, ...) de una
+   * plantilla Meta a partir del destinatario y la actividad/proyecto. {{1}}
+   * es siempre el nombre del destinatario (o un saludo generico si no se
+   * conoce); las plantillas especificas usan el nombre de la actividad (y,
+   * para INSUMO_CARGADO, tambien el del proyecto). La plantilla generica usa
+   * el mensaje libre de la regla como {{2}} (o el nombre de la actividad si
+   * la regla no definio mensaje).
+   */
+  private buildTemplateParams(
+    templateName: WhatsappTemplateName,
+    recipientName: string | undefined,
+    activity: Activity,
+    project: Project,
+    freeMessage: string | undefined,
+  ): string[] {
+    const nombre = recipientName?.trim() || 'usuario';
+    if (templateName === WhatsappTemplateName.NOTIFICACION_ACTIVIDAD_UTILIDAD) {
+      return [nombre, freeMessage?.trim() || activity.name];
+    }
+    if (templateName === WhatsappTemplateName.ACTIVIDAD_INSUMO_CARGADO) {
+      return [nombre, activity.name, project.name];
+    }
+    return [nombre, activity.name];
   }
 
   /** Etiqueta legible del destinatario de una accion WhatsApp (para el historial). */

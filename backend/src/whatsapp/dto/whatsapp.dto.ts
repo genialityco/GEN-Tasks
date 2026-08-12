@@ -1,11 +1,12 @@
 import {
+  IsArray,
   IsBoolean,
   IsEnum,
   IsOptional,
   IsString,
   MinLength,
 } from 'class-validator';
-import { NotificationChannel } from '@gen-task/shared';
+import { NotificationChannel, WhatsappTemplateName } from '@gen-task/shared';
 
 export class SendMessageDto {
   @IsString()
@@ -38,4 +39,17 @@ export class UpdateTemplateDto {
   @IsOptional() @IsString() subject?: string;
   @IsOptional() @IsEnum(NotificationChannel) channel?: NotificationChannel;
   @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+/**
+ * Envio de un mensaje de prueba a un telefono, desde el formulario de una
+ * automatizacion. Si `templateName` viene definido, se envia esa plantilla
+ * Meta con `templateParams` (posicionales); si no, se envia `body` como texto
+ * libre (mismo canal que usa la accion SEND_WHATSAPP de las reglas).
+ */
+export class SendTestMessageDto {
+  @IsString() @MinLength(6) phone!: string;
+  @IsOptional() @IsString() body?: string;
+  @IsOptional() @IsEnum(WhatsappTemplateName) templateName?: WhatsappTemplateName;
+  @IsOptional() @IsArray() @IsString({ each: true }) templateParams?: string[];
 }

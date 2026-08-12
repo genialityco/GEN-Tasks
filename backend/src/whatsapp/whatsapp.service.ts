@@ -22,6 +22,7 @@ import {
   WhatsappMessage,
   WhatsappSession,
   WhatsappSessionState,
+  WhatsappTemplateName,
 } from '@gen-task/shared';
 import { FirebaseService } from '../firebase/firebase.service';
 import {
@@ -34,6 +35,7 @@ import { HostsService } from '../hosts/hosts.service';
 import { UsersService } from '../users/users.service';
 import { WhatsappCloudApiService } from './whatsapp-cloud-api.service';
 import { OrganizationResolverService } from './organization-resolver.service';
+import { renderWhatsappTemplateFallback } from './whatsapp-templates.constants';
 
 /** Forma simplificada de un mensaje entrante ya normalizado. */
 export interface NormalizedInboundMessage {
@@ -228,6 +230,36 @@ export class WhatsappService {
       senderType: MessageSenderType.BOT,
       messageType: MessageType.TEXT,
       content: body,
+    });
+  }
+
+  /**
+   * Envia un mensaje de PLANTILLA (Meta Business Message Templates) del BOT a
+   * un telefono dado (asegurando el chat), con sus parametros posicionales
+   * ({{1}}, {{2}}, ...). Usado por el motor de reglas cuando la accion
+   * SEND_WHATSAPP se configura en modo plantilla. Persiste el texto
+   * equivalente renderizado para que el chat siga siendo legible en el panel.
+   */
+  async sendTemplateMessageToPhone(
+    organizationId: string,
+    phone: string,
+    templateName: WhatsappTemplateName,
+    params: string[],
+  ): Promise<void> {
+    const chat = await this.ensureChat(organizationId, phone);
+    await this.cloudApi.sendTemplate({
+      to: phone,
+      templateName,
+      bodyParams: params,
+    });
+    await this.persistMessage({
+      organizationId,
+      chatId: chat.id,
+      phone,
+      direction: MessageDirection.OUTBOUND,
+      senderType: MessageSenderType.BOT,
+      messageType: MessageType.TEXT,
+      content: renderWhatsappTemplateFallback(templateName, params),
     });
   }
 
