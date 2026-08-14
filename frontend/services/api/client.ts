@@ -14,6 +14,22 @@ export class ApiError extends Error {
 }
 
 /**
+ * Obtiene el ID token de Firebase para adjuntarlo a la peticion.
+ *
+ * Espera con `authStateReady()` a que Firebase termine de restaurar la sesion
+ * persistida (IndexedDB). Sin esto, las primeras peticiones tras cargar la
+ * pagina salen mientras `currentUser` aun es `null`, llegan al backend sin
+ * token y devuelven 401 (con `useAsync` sin reintento, la vista queda vacia
+ * hasta recargar). Una vez restaurada la sesion, `authStateReady()` resuelve
+ * de inmediato, asi que no añade latencia en navegaciones posteriores.
+ */
+async function getAuthToken(): Promise<string | null> {
+  await firebaseAuth.authStateReady();
+  const user = firebaseAuth.currentUser;
+  return user ? user.getIdToken() : null;
+}
+
+/**
  * Cliente HTTP centralizado para la API NestJS. Adjunta automaticamente el ID
  * token de Firebase en cada peticion y normaliza el manejo de errores.
  */
@@ -21,8 +37,7 @@ async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const user = firebaseAuth.currentUser;
-  const token = user ? await user.getIdToken() : null;
+  const token = await getAuthToken();
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -49,8 +64,7 @@ async function request<T>(
  * navegador agregue el boundary correcto; adjunta el ID token igual que el resto.
  */
 export async function uploadFile<T>(path: string, file: File): Promise<T> {
-  const user = firebaseAuth.currentUser;
-  const token = user ? await user.getIdToken() : null;
+  const token = await getAuthToken();
 
   const form = new FormData();
   form.append('file', file);

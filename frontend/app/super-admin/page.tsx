@@ -26,21 +26,15 @@ function SuperAdminContent() {
 
   if (!isSuperAdmin(profile)) {
     return (
-      <main style={{ padding: 24 }}>
+      <main className="p-4 md:p-6">
         <p className="gt-error">Acceso restringido al SUPER_ADMIN.</p>
       </main>
     );
   }
 
   return (
-    <main style={{ padding: 24, display: 'grid', gap: 16 }}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}
-      >
+    <main className="grid gap-4 p-4 md:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 style={{ margin: 0 }}>Organizaciones</h1>
         {!creating && (
           <button className="gt-btn" onClick={() => setCreating(true)}>

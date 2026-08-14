@@ -10,8 +10,13 @@ import {
   Alert,
   List,
   Loader,
+  Menu,
 } from '@mantine/core';
-import { IconFileImport, IconFileExport } from '@tabler/icons-react';
+import {
+  IconFileImport,
+  IconFileExport,
+  IconCaretDownFilled,
+} from '@tabler/icons-react';
 import * as XLSX from 'xlsx';
 import type { ActivityFilters } from '../../services/api/activities.api';
 import { activitiesApi } from '../../services/api/activities.api';
@@ -101,7 +106,8 @@ export function ExcelToolbar({
           if (file) void handleFile(file);
         }}
       />
-      <Group gap="xs">
+      {/* Escritorio (>=768px): botones directos. */}
+      <Group gap="xs" visibleFrom="sm">
         <Button
           variant="light"
           leftSection={<IconFileImport size={16} />}
@@ -119,6 +125,35 @@ export function ExcelToolbar({
           Exportar Excel
         </Button>
       </Group>
+
+      {/* Movil (<768px): menu desplegable (triangulo hacia abajo). */}
+      <Menu shadow="md" position="bottom-end" withinPortal>
+        <Menu.Target>
+          <Button
+            hiddenFrom="sm"
+            variant="light"
+            px={10}
+            loading={busy !== null}
+            aria-label="Opciones de Excel"
+          >
+            <IconCaretDownFilled size={14} />
+          </Button>
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Item
+            leftSection={<IconFileImport size={16} />}
+            onClick={() => fileInput.current?.click()}
+          >
+            Importar Excel
+          </Menu.Item>
+          <Menu.Item
+            leftSection={<IconFileExport size={16} />}
+            onClick={handleExport}
+          >
+            Exportar Excel
+          </Menu.Item>
+        </Menu.Dropdown>
+      </Menu>
 
       {error && (
         <Alert color="red" mt="sm" onClose={() => setError(null)} withCloseButton>

@@ -99,19 +99,21 @@ export function GestoresPanel({
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
                 gap: 8,
                 padding: '6px 8px',
                 border: '1px solid var(--border)',
                 borderRadius: 6,
               }}
             >
-              <span>
+              <span style={{ minWidth: 0, flex: '1 1 160px', wordBreak: 'break-word' }}>
                 {g.name || g.email || 'Gestor'}
                 {g.name && g.email && (
                   <span className="gt-muted"> · {g.email}</span>
                 )}
               </span>
-              <div style={{ display: 'flex', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button
                   className="gt-btn"
                   style={{ padding: '4px 10px' }}
@@ -368,9 +370,10 @@ function GestorRuleEditor({
           <>
             <span className="gt-muted">Transiciones de estado permitidas</span>
             {transitions.map((t, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 <select
                   className="gt-input"
+                  style={{ flex: '1 1 120px', minWidth: 0 }}
                   value={t.fromStatusId}
                   onChange={(e) => updateTransition(i, { fromStatusId: e.target.value })}
                 >
@@ -383,6 +386,7 @@ function GestorRuleEditor({
                 <span>→</span>
                 <select
                   className="gt-input"
+                  style={{ flex: '1 1 120px', minWidth: 0 }}
                   value={t.toStatusId}
                   onChange={(e) => updateTransition(i, { toStatusId: e.target.value })}
                 >

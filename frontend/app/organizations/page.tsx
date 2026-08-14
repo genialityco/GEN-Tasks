@@ -19,7 +19,7 @@ function OrganizationsContent() {
   const { data: organizations, loading, error } = useOrganizations();
 
   return (
-    <main style={{ padding: 24, display: 'grid', gap: 16 }}>
+    <main className="grid gap-4 p-4 md:p-6">
       <h1 style={{ margin: 0 }}>Mis organizaciones</h1>
       {loading && <p>Cargando...</p>}
       {error && <p className="gt-error">{error}</p>}

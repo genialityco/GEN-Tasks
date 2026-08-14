@@ -308,7 +308,8 @@ export function ActivitiesTable({
         </Group>
       )}
 
-      <Table striped highlightOnHover style={{ tableLayout: 'auto' }}>
+      <div className="-mx-2 overflow-x-auto px-2 md:mx-0 md:px-0">
+      <Table striped highlightOnHover style={{ tableLayout: 'auto', minWidth: 640 }}>
       <Table.Thead>
         <Table.Tr>
           {columns.map((col) => (
@@ -556,6 +557,7 @@ export function ActivitiesTable({
         )}
       </Table.Tbody>
     </Table>
+      </div>
 
       <Modal
         opened={!!deleteTarget}

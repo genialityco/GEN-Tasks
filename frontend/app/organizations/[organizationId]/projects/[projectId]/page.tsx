@@ -51,7 +51,7 @@ export default function ProjectPage() {
   }, [params.projectId, reload]);
 
   return (
-    <main style={{ padding: 24 }}>
+    <main className="p-4 md:p-6">
       <Stack gap="md">
         <Title order={2}>{project?.name ?? 'Proyecto'}</Title>
 

@@ -43,8 +43,7 @@ export default function LoginPage() {
     >
       <form
         onSubmit={handleSubmit}
-        className="gt-card"
-        style={{ width: 360, display: 'grid', gap: 12 }}
+        className="gt-card grid w-full max-w-[360px] gap-3"
       >
         <h1 style={{ margin: 0, fontSize: 22 }}>GEN-Task</h1>
         <p className="gt-muted" style={{ margin: 0 }}>

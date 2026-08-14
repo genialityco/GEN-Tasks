@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import type { CSSProperties, ReactNode } from 'react';
 import '@mantine/core/styles.css';
 import './globals.css';
@@ -14,6 +14,13 @@ import { ToastProvider } from '../components/toast/ToastProvider';
 export const metadata: Metadata = {
   title: 'GEN-Task',
   description: 'Plataforma multi-organizacion de gestion de actividades',
+};
+
+/** Viewport para que la plataforma escale bien en moviles y tablets. */
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 /**

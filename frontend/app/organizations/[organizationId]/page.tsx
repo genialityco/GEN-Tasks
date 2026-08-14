@@ -27,7 +27,7 @@ export default function OrganizationHomePage() {
   const [creating, setCreating] = useState(false);
 
   return (
-    <main style={{ padding: 24 }}>
+    <main className="p-4 md:p-6">
       <Stack gap="lg" maw={900}>
         <Title order={2}>{organization?.name ?? 'Organización'}</Title>
 

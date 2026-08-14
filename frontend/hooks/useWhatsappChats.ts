@@ -5,13 +5,29 @@ import { whatsappApi } from '../services/api/whatsapp.api';
 import { useAsync } from './useAsync';
 
 const MESSAGES_POLL_MS = 5000;
+const CHATS_POLL_MS = 8000;
 
-/** Conversaciones de WhatsApp de una organizacion. */
+/**
+ * Conversaciones de WhatsApp de una organizacion, con polling para que los
+ * chats nuevos (o cambios de estado del bot) aparezcan sin recargar la pagina.
+ * `useAsync` conserva los datos previos mientras recarga, asi que la lista no
+ * parpadea ni desaparece entre sondeos.
+ */
 export function useWhatsappChats(organizationId: string) {
-  return useAsync(
+  const state = useAsync(
     () => whatsappApi.listChats(organizationId),
     [organizationId],
   );
+
+  useEffect(() => {
+    if (!organizationId) return;
+    const id = setInterval(() => state.reload(), CHATS_POLL_MS);
+    return () => clearInterval(id);
+    // reload es estable (useCallback); organizationId es la dependencia real.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organizationId]);
+
+  return state;
 }
 
 /**

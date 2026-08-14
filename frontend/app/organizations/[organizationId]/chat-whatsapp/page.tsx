@@ -16,7 +16,7 @@ export default function ChatWhatsappPage() {
   const [tab, setTab] = useState<'chats' | 'templates'>('chats');
 
   return (
-    <main style={{ padding: 24, display: 'grid', gap: 16 }}>
+    <main className="grid gap-4 p-4 md:p-6">
       <h1 style={{ margin: 0 }}>ChatWhatsapp</h1>
       <nav style={{ display: 'flex', gap: 8, borderBottom: '1px solid var(--border)' }}>
         <TabButton active={tab === 'chats'} onClick={() => setTab('chats')}>
@@ -100,12 +100,9 @@ function ChatsView({ organizationId }: { organizationId: string }) {
 
   return (
     <div
+      className="grid grid-cols-1 grid-rows-[minmax(140px,32vh)_1fr] gap-4 md:grid-cols-[280px_1fr] md:grid-rows-1 md:items-start"
       style={{
-        display: 'grid',
-        gridTemplateColumns: '280px 1fr',
-        gap: 16,
-        alignItems: 'start',
-        height: 'calc(100vh - 240px)',
+        height: 'calc(100vh - 220px)',
         minHeight: 420,
       }}
     >

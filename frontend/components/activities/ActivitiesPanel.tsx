@@ -78,29 +78,39 @@ export function ActivitiesPanel({
 
   return (
     <>
-      <Group justify="space-between" mb="md">
+      <Group justify="space-between" mb="md" wrap="wrap" gap="sm">
         <Title order={3}>Gestor de Actividades</Title>
-        <Group gap="sm">
-          <SegmentedControl
-            value={view}
-            onChange={(v) => setView(v as 'tabla' | 'tablero')}
-            data={[
-              { label: 'Tabla', value: 'tabla' },
-              { label: 'Tablero', value: 'tablero' },
-            ]}
-            size="xs"
-          />
-          {(role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN) && (
-            <ExcelToolbar
-              projectId={project.id}
-              projectName={project.name}
-              onImported={reload}
+        {/* Controles. Movil (<sm): "Nueva actividad" + Excel pegados a la
+            izquierda y el selector de vista a la derecha. Escritorio (>=sm):
+            vista, Excel y "Nueva actividad" alineados a la derecha (como antes).
+            El orden se controla con `order`/`ml-auto` sobre divs planos. */}
+        <div className="flex w-full flex-wrap items-center gap-1 sm:w-auto sm:flex-nowrap sm:gap-2">
+          <div className="order-3 ml-auto sm:order-1 sm:ml-0">
+            <SegmentedControl
+              value={view}
+              onChange={(v) => setView(v as 'tabla' | 'tablero')}
+              data={[
+                { label: 'Tabla', value: 'tabla' },
+                { label: 'Tablero', value: 'tablero' },
+              ]}
+              size="xs"
             />
+          </div>
+          {(role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN) && (
+            <div className="order-2">
+              <ExcelToolbar
+                projectId={project.id}
+                projectName={project.name}
+                onImported={reload}
+              />
+            </div>
           )}
           {!creating && (
-            <Button onClick={() => setCreating(true)}>Nueva actividad</Button>
+            <div className="order-1 sm:order-3">
+              <Button onClick={() => setCreating(true)}>Nueva actividad</Button>
+            </div>
           )}
-        </Group>
+        </div>
       </Group>
 
       <Modal

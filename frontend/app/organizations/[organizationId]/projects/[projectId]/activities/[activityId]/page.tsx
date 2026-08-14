@@ -35,7 +35,7 @@ export default function ActivityDetailPage() {
   const error = errorProject || errorActivity;
 
   return (
-    <main style={{ padding: 24 }}>
+    <main className="p-4 md:p-6">
       <Paper p="lg" shadow="sm" radius="md" withBorder>
         {error && <Alert color="red">{error}</Alert>}
         {(loadingProject || loadingActivity) && <Loader color="blue" type="bars" />}

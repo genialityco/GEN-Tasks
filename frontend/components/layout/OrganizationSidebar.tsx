@@ -19,9 +19,15 @@ import { ProjectConfigModal } from '../projects/ProjectConfigModal';
 export function OrganizationSidebar({
   organizationId,
   whatsappEnabled,
+  mobileOpen = false,
+  collapsed = false,
 }: {
   organizationId: string;
   whatsappEnabled: boolean;
+  /** En movil controla si el drawer esta desplegado. */
+  mobileOpen?: boolean;
+  /** En escritorio, si esta colapsado se oculta la columna del sidebar. */
+  collapsed?: boolean;
 }) {
   const pathname = usePathname();
   const { data: projects, loading } = useProjects(organizationId);
@@ -40,15 +46,20 @@ export function OrganizationSidebar({
 
   return (
     <aside
+      className={[
+        // Desktop: columna estatica dentro del flex.
+        'w-60 shrink-0 content-start gap-4 p-3',
+        'md:static md:z-auto md:translate-x-0 md:shadow-none',
+        // Movil: drawer deslizable off-canvas bajo la topbar.
+        'fixed left-0 top-14 bottom-0 z-40 grid overflow-y-auto',
+        'transition-transform duration-200 ease-out',
+        mobileOpen ? 'translate-x-0 shadow-xl' : '-translate-x-full',
+        // Escritorio colapsado: se oculta la columna por completo.
+        collapsed ? 'md:hidden' : '',
+      ].join(' ')}
       style={{
-        width: 240,
         borderRight: '1px solid var(--border)',
         background: 'var(--surface)',
-        padding: 12,
-        display: 'grid',
-        gap: 16,
-        alignContent: 'start',
-        height: '100%',
       }}
     >
       <div>

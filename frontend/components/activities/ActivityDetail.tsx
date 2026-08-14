@@ -16,6 +16,7 @@ import {
   Tooltip,
   MultiSelect,
   Tabs,
+  SimpleGrid,
 } from "@mantine/core";
 import {
   IconPencil,
@@ -433,14 +434,29 @@ export function ActivityDetail({
         })}
       </div>
 
-      <Group justify="space-between" mb="lg">
-        <Group gap="sm">
-          <Button component={Link} href={backHref} variant="subtle" size="xs">
+      <Group justify="space-between" align="flex-start" wrap="wrap" gap="sm" mb="lg">
+        <Group gap="sm" wrap="nowrap" style={{ minWidth: 0, flex: 1 }}>
+          <Button
+            component={Link}
+            href={backHref}
+            variant="subtle"
+            size="xs"
+            style={{ flexShrink: 0 }}
+          >
             ← Volver
           </Button>
-          <Title order={2}>{activity.name}</Title>
+          <Title
+            order={2}
+            style={{ minWidth: 0, wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+          >
+            {activity.name}
+          </Title>
         </Group>
-        <Badge size="xl" color={statusColor(project, activity.statusId)}>
+        <Badge
+          size="xl"
+          color={statusColor(project, activity.statusId)}
+          style={{ flexShrink: 0 }}
+        >
           {statusName(project, activity.statusId)}
         </Badge>
       </Group>
@@ -670,7 +686,7 @@ export function ActivityDetail({
                     gap="sm"
                     style={{ opacity: 0.6 }}
                   >
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <Group gap={6} wrap="nowrap">
                         <Text size="sm" fw={500}>
                           {field.label}
@@ -724,7 +740,7 @@ export function ActivityDetail({
                   wrap="nowrap"
                   gap="sm"
                 >
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     {isEditing ? (
                       <DynamicField
                         field={field}
@@ -795,7 +811,7 @@ export function ActivityDetail({
 
       {/* Info: creada, programacion y responsables (al final, en horizontal). */}
       <Paper withBorder radius="md" p="md" mt="xl">
-        <Group align="flex-start" grow wrap="wrap" gap="xl">
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="xl" verticalSpacing="lg">
           {/* Creada */}
           <Stack gap={4}>
             <Text fw={700} size="sm" c="dimmed">
@@ -1018,7 +1034,7 @@ export function ActivityDetail({
               )}
             </Stack>
           )}
-        </Group>
+        </SimpleGrid>
       </Paper>
     </>
   );
