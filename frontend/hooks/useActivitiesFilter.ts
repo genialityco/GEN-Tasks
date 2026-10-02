@@ -13,19 +13,23 @@ export type SortDir = 'asc' | 'desc';
 
 /**
  * Filtro de una columna de fecha personalizada (ej: "Fecha del evento"):
- * rango desde/hasta (YYYY-MM-DD) y modo "todos" o "solo activos" (fecha de hoy
- * en adelante).
+ * rango desde/hasta (YYYY-MM-DD).
  */
 export interface DateFieldFilter {
   from: string;
   to: string;
-  mode: 'todos' | 'activos';
 }
 
-export const EMPTY_DATE_FIELD_FILTER: DateFieldFilter = { from: '', to: '', mode: 'todos' };
+/**
+ * Alcance de la lista: solo la sub-pestana actual ("activos") o activas y
+ * finalizadas juntas ("todos").
+ */
+export type ActivityScope = 'activos' | 'todos';
+
+export const EMPTY_DATE_FIELD_FILTER: DateFieldFilter = { from: '', to: '' };
 
 export function isDateFieldFilterActive(f?: DateFieldFilter): boolean {
-  return !!f && (!!f.from || !!f.to || f.mode === 'activos');
+  return !!f && (!!f.from || !!f.to);
 }
 
 /** Normaliza un valor de fecha a `YYYY-MM-DD` (fecha local), o '' si no es valido. */
@@ -35,10 +39,6 @@ function toDateKey(v: unknown): string {
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return '';
-  return localDateKey(d);
-}
-
-function localDateKey(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
@@ -61,6 +61,7 @@ export function useActivitiesFilter(activities: Activity[], project: Project) {
   const [filterFechaFrom, setFilterFechaFrom] = useState('');
   const [filterFechaTo, setFilterFechaTo] = useState('');
   const [dateFieldFilters, setDateFieldFilters] = useState<Record<string, DateFieldFilter>>({});
+  const [scope, setScopeState] = useState<ActivityScope>('activos');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState('10');
 
@@ -85,13 +86,11 @@ export function useActivitiesFilter(activities: Activity[], project: Project) {
         const to = new Date(filterFechaTo + 'T23:59:59').getTime();
         if (new Date(a.createdAt).getTime() > to) return false;
       }
-      // Columnas de fecha personalizadas (`cf_<key>`): rango y "solo activos".
-      const today = localDateKey(new Date());
+      // Columnas de fecha personalizadas (`cf_<key>`): rango desde/hasta.
       for (const [key, f] of Object.entries(dateFieldFilters)) {
         if (!isDateFieldFilterActive(f)) continue;
         const v = toDateKey(a.customFieldValues?.[key.slice(3)]);
         if (!v) return false;
-        if (f.mode === 'activos' && v < today) return false;
         if (f.from && v < f.from) return false;
         if (f.to && v > f.to) return false;
       }
@@ -100,10 +99,16 @@ export function useActivitiesFilter(activities: Activity[], project: Project) {
   }, [filterFields, filterResponsibles, filterFechaFrom, filterFechaTo, dateFieldFilters, project]);
 
   const filtered = useMemo(() => {
-    return activities.filter(
-      (a) => activitySubTab(a, statusMap) === subTab && matchesCommonFilters(a),
-    );
-  }, [activities, statusMap, subTab, matchesCommonFilters]);
+    return activities.filter((a) => {
+      const tab = activitySubTab(a, statusMap);
+      // "Todos": activas y finalizadas juntas (las archivadas siguen aparte).
+      const inScope =
+        scope === 'todos' && subTab !== 'archivados'
+          ? tab !== 'archivados'
+          : tab === subTab;
+      return inScope && matchesCommonFilters(a);
+    });
+  }, [activities, statusMap, subTab, scope, matchesCommonFilters]);
 
   // Para el tablero (kanban): todas las actividades no archivadas, sin importar
   // la sub-pestana, ya que cada columna representa un estado del proyecto.
@@ -154,6 +159,11 @@ export function useActivitiesFilter(activities: Activity[], project: Project) {
     setPage(1);
   };
 
+  const setScope = (next: ActivityScope) => {
+    setScopeState(next);
+    setPage(1);
+  };
+
   const clearDateFieldFilter = (key: string) => {
     setDateFieldFilters((prev) => {
       const next = { ...prev };
@@ -181,6 +191,8 @@ export function useActivitiesFilter(activities: Activity[], project: Project) {
     dateFieldFilters,
     setDateFieldFilter,
     clearDateFieldFilter,
+    scope,
+    setScope,
     page,
     setPage,
     pageSize,

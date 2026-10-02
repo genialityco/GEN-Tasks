@@ -65,7 +65,7 @@ interface Column {
   sortable: boolean;
   /** Si la columna admite filtro por valores unicos (popover de checkboxes). */
   filterable: boolean;
-  /** Campo personalizado de fecha: filtro por rango y "todos / solo activos". */
+  /** Campo personalizado de fecha: filtro por rango y alcance "todos / solo activos". */
   dateFilterable?: boolean;
   render: (activity: Activity) => React.ReactNode;
 }
@@ -379,7 +379,7 @@ export function ActivitiesTable({
 
                 {col.dateFilterable && (() => {
                   const df = filter.dateFieldFilters[col.key];
-                  const active = isDateFieldFilterActive(df);
+                  const active = isDateFieldFilterActive(df) || filter.scope === 'todos';
                   return (
                     <Popover withArrow shadow="md" position="bottom-start" withinPortal>
                       <Popover.Target>
@@ -394,13 +394,11 @@ export function ActivitiesTable({
                           <Text size="xs" fw={700}>{col.label}</Text>
                           <SegmentedControl
                             size="xs"
-                            value={df?.mode ?? 'todos'}
-                            onChange={(v) =>
-                              filter.setDateFieldFilter(col.key, { mode: v as 'todos' | 'activos' })
-                            }
+                            value={filter.scope}
+                            onChange={(v) => filter.setScope(v as 'todos' | 'activos')}
                             data={[
-                              { label: 'Todos', value: 'todos' },
                               { label: 'Solo activos', value: 'activos' },
+                              { label: 'Todos', value: 'todos' },
                             ]}
                           />
                           <Text size="xs" c="dimmed">Desde</Text>
@@ -422,7 +420,10 @@ export function ActivitiesTable({
                               size="xs"
                               variant="subtle"
                               color="red"
-                              onClick={() => filter.clearDateFieldFilter(col.key)}
+                              onClick={() => {
+                                filter.clearDateFieldFilter(col.key);
+                                filter.setScope('activos');
+                              }}
                             >
                               Limpiar
                             </Button>
