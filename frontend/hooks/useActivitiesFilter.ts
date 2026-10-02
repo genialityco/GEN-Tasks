@@ -12,6 +12,38 @@ import {
 export type SortDir = 'asc' | 'desc';
 
 /**
+ * Filtro de una columna de fecha personalizada (ej: "Fecha del evento"):
+ * rango desde/hasta (YYYY-MM-DD) y modo "todos" o "solo activos" (fecha de hoy
+ * en adelante).
+ */
+export interface DateFieldFilter {
+  from: string;
+  to: string;
+  mode: 'todos' | 'activos';
+}
+
+export const EMPTY_DATE_FIELD_FILTER: DateFieldFilter = { from: '', to: '', mode: 'todos' };
+
+export function isDateFieldFilterActive(f?: DateFieldFilter): boolean {
+  return !!f && (!!f.from || !!f.to || f.mode === 'activos');
+}
+
+/** Normaliza un valor de fecha a `YYYY-MM-DD` (fecha local), o '' si no es valido. */
+function toDateKey(v: unknown): string {
+  if (v == null || v === '') return '';
+  const s = String(v);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return '';
+  return localDateKey(d);
+}
+
+function localDateKey(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
  * Filtrado, ordenamiento y paginacion de actividades del lado del cliente.
  * Port de `useTicketsFilter` de Motorola adaptado al modelo de GEN-Task:
  * sub-pestanas por estado (activos/finalizados/archivados), orden por columna,
@@ -28,6 +60,7 @@ export function useActivitiesFilter(activities: Activity[], project: Project) {
   const [filterResponsibles, setFilterResponsibles] = useState<string[]>([]);
   const [filterFechaFrom, setFilterFechaFrom] = useState('');
   const [filterFechaTo, setFilterFechaTo] = useState('');
+  const [dateFieldFilters, setDateFieldFilters] = useState<Record<string, DateFieldFilter>>({});
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState('10');
 
@@ -52,9 +85,19 @@ export function useActivitiesFilter(activities: Activity[], project: Project) {
         const to = new Date(filterFechaTo + 'T23:59:59').getTime();
         if (new Date(a.createdAt).getTime() > to) return false;
       }
+      // Columnas de fecha personalizadas (`cf_<key>`): rango y "solo activos".
+      const today = localDateKey(new Date());
+      for (const [key, f] of Object.entries(dateFieldFilters)) {
+        if (!isDateFieldFilterActive(f)) continue;
+        const v = toDateKey(a.customFieldValues?.[key.slice(3)]);
+        if (!v) return false;
+        if (f.mode === 'activos' && v < today) return false;
+        if (f.from && v < f.from) return false;
+        if (f.to && v > f.to) return false;
+      }
       return true;
     };
-  }, [filterFields, filterResponsibles, filterFechaFrom, filterFechaTo, project]);
+  }, [filterFields, filterResponsibles, filterFechaFrom, filterFechaTo, dateFieldFilters, project]);
 
   const filtered = useMemo(() => {
     return activities.filter(
@@ -103,6 +146,23 @@ export function useActivitiesFilter(activities: Activity[], project: Project) {
     setPage(1);
   };
 
+  const setDateFieldFilter = (key: string, patch: Partial<DateFieldFilter>) => {
+    setDateFieldFilters((prev) => ({
+      ...prev,
+      [key]: { ...EMPTY_DATE_FIELD_FILTER, ...prev[key], ...patch },
+    }));
+    setPage(1);
+  };
+
+  const clearDateFieldFilter = (key: string) => {
+    setDateFieldFilters((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setPage(1);
+  };
+
   return {
     statusMap,
     subTab,
@@ -118,6 +178,9 @@ export function useActivitiesFilter(activities: Activity[], project: Project) {
     setFilterFechaFrom,
     filterFechaTo,
     setFilterFechaTo,
+    dateFieldFilters,
+    setDateFieldFilter,
+    clearDateFieldFilter,
     page,
     setPage,
     pageSize,

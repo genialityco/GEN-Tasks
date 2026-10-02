@@ -17,6 +17,7 @@ import {
   Select,
   Anchor,
   Modal,
+  SegmentedControl,
 } from '@mantine/core';
 import {
   IconFilter,
@@ -35,7 +36,10 @@ import {
   type OrganizationMember,
   type Project,
 } from '@gen-task/shared';
-import type { useActivitiesFilter } from '../../hooks/useActivitiesFilter';
+import {
+  isDateFieldFilterActive,
+  type useActivitiesFilter,
+} from '../../hooks/useActivitiesFilter';
 import { projectsApi } from '../../services/api/projects.api';
 import { activitiesApi } from '../../services/api/activities.api';
 import { attachmentsSummary } from './FileFieldUploader';
@@ -61,6 +65,8 @@ interface Column {
   sortable: boolean;
   /** Si la columna admite filtro por valores unicos (popover de checkboxes). */
   filterable: boolean;
+  /** Campo personalizado de fecha: filtro por rango y "todos / solo activos". */
+  dateFilterable?: boolean;
   render: (activity: Activity) => React.ReactNode;
 }
 
@@ -164,6 +170,7 @@ export function ActivitiesTable({
         label: f.label,
         sortable: true,
         filterable: f.type === CustomFieldType.LIST,
+        dateFilterable: f.type === CustomFieldType.DATE,
         render: (a: Activity) => {
           const v = a.customFieldValues?.[f.key];
           if (isFileField(f.type)) return attachmentsSummary(v);
@@ -369,6 +376,62 @@ export function ActivitiesTable({
                     </Popover.Dropdown>
                   </Popover>
                 )}
+
+                {col.dateFilterable && (() => {
+                  const df = filter.dateFieldFilters[col.key];
+                  const active = isDateFieldFilterActive(df);
+                  return (
+                    <Popover withArrow shadow="md" position="bottom-start" withinPortal>
+                      <Popover.Target>
+                        <Tooltip label={active ? 'Filtro activo' : 'Filtrar por fecha'} withArrow>
+                          <ActionIcon size="xs" variant="subtle" color={active ? 'blue' : 'gray'}>
+                            <IconFilter size={13} />
+                          </ActionIcon>
+                        </Tooltip>
+                      </Popover.Target>
+                      <Popover.Dropdown>
+                        <Stack gap="xs">
+                          <Text size="xs" fw={700}>{col.label}</Text>
+                          <SegmentedControl
+                            size="xs"
+                            value={df?.mode ?? 'todos'}
+                            onChange={(v) =>
+                              filter.setDateFieldFilter(col.key, { mode: v as 'todos' | 'activos' })
+                            }
+                            data={[
+                              { label: 'Todos', value: 'todos' },
+                              { label: 'Solo activos', value: 'activos' },
+                            ]}
+                          />
+                          <Text size="xs" c="dimmed">Desde</Text>
+                          <input
+                            type="date"
+                            className="gt-input"
+                            value={df?.from ?? ''}
+                            onChange={(e) => filter.setDateFieldFilter(col.key, { from: e.target.value })}
+                          />
+                          <Text size="xs" c="dimmed">Hasta</Text>
+                          <input
+                            type="date"
+                            className="gt-input"
+                            value={df?.to ?? ''}
+                            onChange={(e) => filter.setDateFieldFilter(col.key, { to: e.target.value })}
+                          />
+                          {active && (
+                            <Button
+                              size="xs"
+                              variant="subtle"
+                              color="red"
+                              onClick={() => filter.clearDateFieldFilter(col.key)}
+                            >
+                              Limpiar
+                            </Button>
+                          )}
+                        </Stack>
+                      </Popover.Dropdown>
+                    </Popover>
+                  );
+                })()}
 
                 {col.key === 'responsibles' && members.length > 0 && (
                   <Popover withArrow shadow="md" position="bottom-start" withinPortal>
