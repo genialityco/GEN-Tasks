@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -9,8 +10,9 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { MessageType, UserRole } from '@gen-task/shared';
+import { AuthenticatedUser, MessageType, UserRole } from '@gen-task/shared';
 import { ConfigService } from '@nestjs/config';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -22,6 +24,11 @@ import {
 } from './whatsapp.service';
 import { WhatsappTemplatesService } from './whatsapp-templates.service';
 import {
+  GroupWebhookEvent,
+  WhatsappGroupsService,
+} from './whatsapp-groups.service';
+import {
+  CreateWhatsappGroupDto,
   RequestInfoDto,
   SendMessageDto,
   SendTestMessageDto,
@@ -37,6 +44,7 @@ export class WhatsappController {
   constructor(
     private readonly whatsapp: WhatsappService,
     private readonly whatsappTemplates: WhatsappTemplatesService,
+    private readonly whatsappGroups: WhatsappGroupsService,
     private readonly config: ConfigService,
   ) {}
 
@@ -65,6 +73,9 @@ export class WhatsappController {
   async receive(@Body() payload: unknown): Promise<{ received: true }> {
     for (const message of this.parsePayload(payload)) {
       await this.whatsapp.handleInbound(message);
+    }
+    for (const event of this.parseGroupEvents(payload)) {
+      await this.whatsappGroups.handleWebhookEvent(event);
     }
     // Meta espera 200 OK siempre para no reintentar.
     return { received: true };
@@ -114,6 +125,64 @@ export class WhatsappController {
     return { sent: true };
   }
 
+  // ----------------------------------------------------------------------
+  // Panel: grupos de WhatsApp (Groups API)
+  // ----------------------------------------------------------------------
+
+  @Get('organizations/:organizationId/whatsapp/groups')
+  @UseGuards(RolesGuard, OrganizationAccessGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  listGroups(@Param('organizationId') organizationId: string) {
+    return this.whatsappGroups.listByOrganization(organizationId);
+  }
+
+  /**
+   * Solicita la creacion del grupo. Queda PENDING hasta que el webhook
+   * `group_lifecycle_update` traiga el group_id y el enlace de invitacion.
+   */
+  @Post('organizations/:organizationId/whatsapp/groups')
+  @UseGuards(RolesGuard, OrganizationAccessGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  createGroup(
+    @Param('organizationId') organizationId: string,
+    @Body() dto: CreateWhatsappGroupDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.whatsappGroups.create(organizationId, dto, user.uid);
+  }
+
+  @Post('organizations/:organizationId/whatsapp/groups/:id/invite-link/reset')
+  @UseGuards(RolesGuard, OrganizationAccessGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  resetGroupInviteLink(
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+  ) {
+    return this.whatsappGroups.resetInviteLink(organizationId, id);
+  }
+
+  @Post('organizations/:organizationId/whatsapp/groups/:id/messages')
+  @UseGuards(RolesGuard, OrganizationAccessGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  sendGroupMessage(
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @Body() dto: SendMessageDto,
+  ) {
+    return this.whatsappGroups.sendMessage(organizationId, id, dto.body);
+  }
+
+  @Delete('organizations/:organizationId/whatsapp/groups/:id')
+  @UseGuards(RolesGuard, OrganizationAccessGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  async deleteGroup(
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+  ): Promise<{ deleted: true }> {
+    await this.whatsappGroups.remove(organizationId, id);
+    return { deleted: true };
+  }
+
   @Get('whatsapp/chats/:chatId/messages')
   listMessages(@Param('chatId') chatId: string) {
     return this.whatsapp.listMessages(chatId);
@@ -159,6 +228,7 @@ export class WhatsappController {
             messages?: {
               from: string;
               type: string;
+              group_id?: string;
               text?: { body: string };
               image?: { link?: string };
               video?: { link?: string };
@@ -177,6 +247,8 @@ export class WhatsappController {
         const profileName = value.contacts?.[0]?.profile?.name;
 
         for (const m of value.messages) {
+          // Los mensajes de grupos no pasan por el bot 1:1 (no son chats).
+          if (m.group_id) continue;
           result.push({
             phone: m.from,
             inboundPhoneNumberId: phoneNumberId,
@@ -186,6 +258,28 @@ export class WhatsappController {
             mediaUrl:
               m.image?.link ?? m.video?.link ?? m.document?.link ?? undefined,
           });
+        }
+      }
+    }
+    return result;
+  }
+
+  /** Extrae los eventos de grupos (`value.groups[]`) de los webhooks group_*. */
+  private parseGroupEvents(payload: unknown): GroupWebhookEvent[] {
+    const body = payload as {
+      entry?: {
+        changes?: {
+          field?: string;
+          value?: { groups?: Omit<GroupWebhookEvent, 'field'>[] };
+        }[];
+      }[];
+    };
+    const result: GroupWebhookEvent[] = [];
+    for (const entry of body.entry ?? []) {
+      for (const change of entry.changes ?? []) {
+        if (!change.field?.startsWith('group_')) continue;
+        for (const g of change.value?.groups ?? []) {
+          result.push({ ...g, field: change.field });
         }
       }
     }

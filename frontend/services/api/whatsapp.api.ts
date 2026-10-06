@@ -1,5 +1,7 @@
 import type {
   WhatsappChat,
+  WhatsappGroup,
+  WhatsappGroupJoinApprovalMode,
   WhatsappMessage,
   WhatsappTemplateName,
 } from '@gen-task/shared';
@@ -11,6 +13,13 @@ export interface SendTestMessagePayload {
   body?: string;
   templateName?: WhatsappTemplateName;
   templateParams?: string[];
+}
+
+/** Datos para crear un grupo de WhatsApp (Groups API de Meta). */
+export interface CreateWhatsappGroupPayload {
+  subject: string;
+  description?: string;
+  joinApprovalMode?: WhatsappGroupJoinApprovalMode;
 }
 
 export const whatsappApi = {
@@ -36,5 +45,27 @@ export const whatsappApi = {
     apiClient.post<{ sent: true }>(
       `/organizations/${organizationId}/whatsapp/test-message`,
       payload,
+    ),
+  listGroups: (organizationId: string) =>
+    apiClient.get<WhatsappGroup[]>(
+      `/organizations/${organizationId}/whatsapp/groups`,
+    ),
+  createGroup: (organizationId: string, payload: CreateWhatsappGroupPayload) =>
+    apiClient.post<WhatsappGroup>(
+      `/organizations/${organizationId}/whatsapp/groups`,
+      payload,
+    ),
+  resetGroupInviteLink: (organizationId: string, groupId: string) =>
+    apiClient.post<WhatsappGroup>(
+      `/organizations/${organizationId}/whatsapp/groups/${groupId}/invite-link/reset`,
+    ),
+  sendGroupMessage: (organizationId: string, groupId: string, body: string) =>
+    apiClient.post<{ sent: true }>(
+      `/organizations/${organizationId}/whatsapp/groups/${groupId}/messages`,
+      { body },
+    ),
+  deleteGroup: (organizationId: string, groupId: string) =>
+    apiClient.delete<{ deleted: true }>(
+      `/organizations/${organizationId}/whatsapp/groups/${groupId}`,
     ),
 };

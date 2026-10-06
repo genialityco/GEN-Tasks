@@ -149,4 +149,125 @@ export class WhatsappCloudApiService {
     };
     return data.messages?.[0]?.id ?? null;
   }
+
+  // ----------------------------------------------------------------------
+  // Groups API (requiere Official Business Account)
+  // ----------------------------------------------------------------------
+
+  /**
+   * Hace una peticion a la Graph API y lanza un Error con el mensaje de Meta
+   * si falla. A diferencia del envio de mensajes (best-effort), la gestion de
+   * grupos la dispara un usuario desde el panel y debe ver el error.
+   */
+  private async graphRequest<T>(
+    method: 'GET' | 'POST' | 'DELETE',
+    path: string,
+    body?: Record<string, unknown>,
+  ): Promise<T> {
+    const accessToken = this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
+    if (!accessToken) {
+      throw new Error('WhatsApp no configurado (WHATSAPP_ACCESS_TOKEN ausente).');
+    }
+    const res = await fetch(
+      `https://graph.facebook.com/${this.apiVersion}/${path}`,
+      {
+        method,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      },
+    );
+    const text = await res.text();
+    if (!res.ok) {
+      this.logger.error(`Error Graph API ${method} ${path}: ${res.status} ${text}`);
+      let message = `Error ${res.status} de Meta`;
+      try {
+        const parsed = JSON.parse(text) as {
+          error?: { message?: string; error_data?: { details?: string } };
+        };
+        message =
+          parsed.error?.error_data?.details ?? parsed.error?.message ?? message;
+      } catch {
+        // respuesta no JSON: se conserva el mensaje generico
+      }
+      throw new Error(message);
+    }
+    return (text ? JSON.parse(text) : {}) as T;
+  }
+
+  /**
+   * Solicita la creacion de un grupo. Es asincrona: devuelve el `request_id`
+   * y el `group_id` + `invite_link` llegan por el webhook
+   * `group_lifecycle_update`.
+   */
+  async createGroup(params: {
+    subject: string;
+    description?: string;
+    joinApprovalMode?: 'auto_approve' | 'approval_required';
+  }): Promise<{ requestId: string }> {
+    const phoneNumberId = this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
+    if (!phoneNumberId) {
+      throw new Error('WhatsApp no configurado (WHATSAPP_PHONE_NUMBER_ID ausente).');
+    }
+    const data = await this.graphRequest<{ request_id?: string }>(
+      'POST',
+      `${phoneNumberId}/groups`,
+      {
+        messaging_product: 'whatsapp',
+        subject: params.subject,
+        description: params.description || undefined,
+        join_approval_mode: params.joinApprovalMode ?? 'auto_approve',
+      },
+    );
+    if (!data.request_id) {
+      throw new Error('Meta no devolvio request_id al crear el grupo.');
+    }
+    return { requestId: data.request_id };
+  }
+
+  /** Obtiene el enlace de invitacion vigente del grupo. */
+  async getGroupInviteLink(groupId: string): Promise<string> {
+    const data = await this.graphRequest<{ invite_link: string }>(
+      'GET',
+      `${groupId}/invite_link`,
+    );
+    return data.invite_link;
+  }
+
+  /** Revoca el enlace actual y genera uno nuevo. */
+  async resetGroupInviteLink(groupId: string): Promise<string> {
+    const data = await this.graphRequest<{ invite_link: string }>(
+      'POST',
+      `${groupId}/invite_link`,
+      { messaging_product: 'whatsapp' },
+    );
+    return data.invite_link;
+  }
+
+  /** Elimina el grupo y saca a todos los participantes (incluido el negocio). */
+  async deleteGroup(groupId: string): Promise<void> {
+    await this.graphRequest('DELETE', groupId);
+  }
+
+  /** Envia un mensaje de texto a un grupo. Devuelve el id del mensaje. */
+  async sendGroupText(groupId: string, body: string): Promise<string | null> {
+    const phoneNumberId = this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
+    if (!phoneNumberId) {
+      throw new Error('WhatsApp no configurado (WHATSAPP_PHONE_NUMBER_ID ausente).');
+    }
+    const data = await this.graphRequest<{ messages?: { id: string }[] }>(
+      'POST',
+      `${phoneNumberId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        recipient_type: 'group',
+        to: groupId,
+        type: 'text',
+        text: { body },
+      },
+    );
+    return data.messages?.[0]?.id ?? null;
+  }
 }

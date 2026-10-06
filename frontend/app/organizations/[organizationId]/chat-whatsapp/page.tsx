@@ -5,15 +5,17 @@ import { useState, useEffect, useRef } from 'react';
 import { useWhatsappChats, useWhatsappMessages } from '../../../../hooks/useWhatsappChats';
 import { whatsappApi } from '../../../../services/api/whatsapp.api';
 import { TemplatesManager } from '../../../../components/whatsapp/TemplatesManager';
+import { GroupsManager } from '../../../../components/whatsapp/GroupsManager';
 
 /**
  * Seccion ChatWhatsapp. Tab "Chats": lista de conversaciones, historial de
  * mensajes, envio manual y toma de control (bot ON/OFF por chat).
  * Tab "Gestion de mensajes": plantillas (Fase 8).
+ * Tab "Grupos": grupos de WhatsApp creados via Groups API.
  */
 export default function ChatWhatsappPage() {
   const params = useParams<{ organizationId: string }>();
-  const [tab, setTab] = useState<'chats' | 'templates'>('chats');
+  const [tab, setTab] = useState<'chats' | 'templates' | 'groups'>('chats');
 
   return (
     <main className="grid gap-4 p-4 md:p-6">
@@ -28,13 +30,16 @@ export default function ChatWhatsappPage() {
         >
           Gestion de mensajes
         </TabButton>
+        <TabButton active={tab === 'groups'} onClick={() => setTab('groups')}>
+          Grupos
+        </TabButton>
       </nav>
 
-      {tab === 'chats' ? (
-        <ChatsView organizationId={params.organizationId} />
-      ) : (
+      {tab === 'chats' && <ChatsView organizationId={params.organizationId} />}
+      {tab === 'templates' && (
         <TemplatesManager organizationId={params.organizationId} />
       )}
+      {tab === 'groups' && <GroupsManager organizationId={params.organizationId} />}
     </main>
   );
 }

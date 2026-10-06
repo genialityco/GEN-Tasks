@@ -96,3 +96,35 @@ export interface MessageTemplate {
   createdAt: IsoDate;
   updatedAt: IsoDate;
 }
+
+/**
+ * Estado de un grupo de WhatsApp (Groups API de Meta). La creacion es
+ * asincrona: el POST devuelve un `request_id` y el resultado llega despues por
+ * el webhook `group_lifecycle_update`.
+ */
+export type WhatsappGroupStatus = 'PENDING' | 'ACTIVE' | 'FAILED' | 'DELETED';
+
+/** Modo de ingreso al grupo por enlace de invitacion. */
+export type WhatsappGroupJoinApprovalMode = 'auto_approve' | 'approval_required';
+
+/** Grupo de WhatsApp creado desde la plataforma via Groups API. */
+export interface WhatsappGroup {
+  id: string;
+  organizationId: string;
+  /** `request_id` devuelto por Meta al crear; enlaza el webhook con este doc. */
+  requestId: string;
+  /** Id del grupo en Meta. Ausente mientras la creacion esta pendiente. */
+  groupId?: string;
+  subject: string;
+  description?: string;
+  joinApprovalMode: WhatsappGroupJoinApprovalMode;
+  status: WhatsappGroupStatus;
+  inviteLink?: string;
+  /** Telefonos (wa_id) de los participantes actuales, segun los webhooks. */
+  participants: string[];
+  /** Mensaje de error de Meta cuando la creacion falla. */
+  error?: string;
+  createdBy?: string;
+  createdAt: IsoDate;
+  updatedAt: IsoDate;
+}

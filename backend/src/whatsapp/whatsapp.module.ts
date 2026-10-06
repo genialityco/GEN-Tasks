@@ -8,6 +8,7 @@ import { OrganizationResolverService } from './organization-resolver.service';
 import { MessageTemplatesController } from './message-templates.controller';
 import { MessageTemplatesService } from './message-templates.service';
 import { WhatsappTemplatesService } from './whatsapp-templates.service';
+import { WhatsappGroupsService } from './whatsapp-groups.service';
 
 @Module({
   imports: [HostsModule, UsersModule],
@@ -18,6 +19,7 @@ import { WhatsappTemplatesService } from './whatsapp-templates.service';
     OrganizationResolverService,
     MessageTemplatesService,
     WhatsappTemplatesService,
+    WhatsappGroupsService,
   ],
   exports: [
     WhatsappService,
