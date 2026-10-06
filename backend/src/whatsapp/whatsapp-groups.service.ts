@@ -1,5 +1,4 @@
 import {
-  BadGatewayException,
   BadRequestException,
   Injectable,
   Logger,
@@ -93,7 +92,7 @@ export class WhatsappGroupsService {
         joinApprovalMode,
       }));
     } catch (err) {
-      throw new BadGatewayException(
+      throw new BadRequestException(
         `No se pudo crear el grupo en WhatsApp: ${(err as Error).message}`,
       );
     }
@@ -277,11 +276,16 @@ export class WhatsappGroupsService {
     return docToEntity<WhatsappGroup>(await ref.get())!;
   }
 
+  /**
+   * Los rechazos de Meta se devuelven como 400 (no 502): el proxy delante del
+   * backend sustituye las respuestas 5xx por su propia pagina y el panel
+   * perderia el mensaje de Meta (p. ej. numero no elegible para la Groups API).
+   */
   private async callMeta<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();
     } catch (err) {
-      throw new BadGatewayException(
+      throw new BadRequestException(
         `Error de WhatsApp: ${(err as Error).message}`,
       );
     }
