@@ -7,6 +7,7 @@ import {
   Organization,
   Project,
   User,
+  WhatsappTemplateName,
 } from '@gen-task/shared';
 import { FirebaseService } from '../firebase/firebase.service';
 import { docToEntity } from '../firebase/firestore.helpers';
@@ -29,7 +30,6 @@ export const NotificationTemplateKey = {
 /** Cuerpos por defecto usados cuando la organizacion no configura una plantilla. */
 const DEFAULT_TEMPLATES: Record<string, string> = {
   [NotificationTemplateKey.RESPONSIBLE_ASSIGNED]:
-    'Hola {{responsibleName}} 👋\n' +
     'Se te ha asignado como responsable de la actividad *{{activityName}}* ' +
     'en el proyecto *{{projectName}}* ({{organizationName}}).\n' +
     'Estado actual: {{statusName}}.\n' +
@@ -187,7 +187,12 @@ export class NotificationsService {
 
   /** Envia la notificacion por WhatsApp si el usuario tiene telefono. Queda
    * registrada como chat, para que sea visible en la ventana de Chats
-   * WhatsApp. */
+   * WhatsApp.
+   *
+   * Se envia con la plantilla aprobada NOTIFICACION_ACTIVIDAD_UTILIDAD (el
+   * cuerpo va como {{2}}) y no como texto libre: Meta solo entrega texto libre
+   * si el destinatario escribio al numero en las ultimas 24 h; fuera de esa
+   * ventana lo descarta en silencio (la API responde 200). */
   private async sendWhatsApp(
     user: User,
     organizationId: string,
@@ -200,7 +205,12 @@ export class NotificationsService {
       );
       return;
     }
-    await this.whatsapp.sendBotMessageToPhone(organizationId, phone, body);
+    await this.whatsapp.sendTemplateMessageToPhone(
+      organizationId,
+      phone,
+      WhatsappTemplateName.NOTIFICACION_ACTIVIDAD_UTILIDAD,
+      [user.name?.trim() || 'usuario', body],
+    );
   }
 
   /**
