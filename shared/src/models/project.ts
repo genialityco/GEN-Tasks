@@ -1,7 +1,10 @@
 import { IsoDate } from './common';
 import {
   CustomFieldType,
+  FieldAlertRecipientType,
+  FieldAlertTrigger,
   LogicalOperator,
+  NotificationChannel,
   RuleActionType,
   RuleEvent,
   StatusType,
@@ -162,6 +165,58 @@ export interface StatusComplianceAlert {
   message: string;
 }
 
+/** Clave especial de `FieldAlert.dateFieldKey` para usar la fecha programada. */
+export const SCHEDULED_DATE_FIELD_KEY = 'scheduledDate';
+
+/** Destinatario de una alerta por campo pendiente. */
+export interface FieldAlertRecipient {
+  type: FieldAlertRecipientType;
+  /** Correo (EMAIL), telefono (PHONE) o userId (MEMBER). Vacio en RESPONSIBLES. */
+  value?: string;
+}
+
+/**
+ * Alerta por campo pendiente: avisa cuando alguno de los campos de la actividad
+ * (`requiredFieldKeys`) sigue vacio en un momento dado. Si todos tienen valor,
+ * no se envia nada. Independiente del semaforo de cumplimiento.
+ *
+ * - EVENT_DAY: el dia de la fecha del evento (`dateFieldKey`), a partir de
+ *   `sendAtHour` (hora Colombia). Ej.: "el dia del webinar deben subirse las
+ *   bases antes de las 5 pm".
+ * - AFTER_FIELD_FILLED: `delayDays` dias despues de que se lleno
+ *   `sourceFieldKey`. Ej.: "2 dias despues del insumo grafico debe estar la
+ *   carpeta de Drive del material".
+ *
+ * Se envia una sola vez por actividad (por fecha de evento en EVENT_DAY).
+ */
+export interface FieldAlert {
+  id: string;
+  name: string;
+  enabled: boolean;
+  trigger: FieldAlertTrigger;
+  /** Campos que deben estar llenos; si alguno esta vacio al evaluarse, se alerta. */
+  requiredFieldKeys: string[];
+  /** EVENT_DAY: `scheduledDate` o la key de un campo DATE. */
+  dateFieldKey?: string;
+  /** EVENT_DAY: hora local (America/Bogota, 0-23) desde la que se envia. */
+  sendAtHour?: number;
+  /** AFTER_FIELD_FILLED: campo cuyo llenado inicia el plazo. */
+  sourceFieldKey?: string;
+  /** AFTER_FIELD_FILLED: dias de plazo desde que se lleno `sourceFieldKey`. */
+  delayDays?: number;
+  recipients: FieldAlertRecipient[];
+  /** Canal para MEMBER/RESPONSIBLES. Ausente = WHATSAPP. */
+  memberChannel?: NotificationChannel;
+  /** Asunto del correo (admite variables). Vacio = el nombre de la alerta. */
+  subject?: string;
+  /**
+   * Mensaje (admite las variables de la actividad, p. ej. `{{activityName}}`,
+   * `{{projectName}}`, `{{link}}`, las keys de campos, `{{eventDate}}` y
+   * `{{missingFields}}`: etiquetas de los campos requeridos que siguen vacios).
+   */
+  message: string;
+}
+
 /** Nivel del semaforo de cumplimiento de una actividad. */
 export enum ComplianceLevel {
   ON_TIME = 'ON_TIME',
@@ -198,6 +253,8 @@ export interface Project {
   alwaysShowFields?: boolean;
   /** Restricciones que deben cumplirse para permitir un cambio de estado. */
   transitionGuards?: StatusTransitionGuard[];
+  /** Alertas por campo pendiente (recordatorios automaticos). */
+  fieldAlerts?: FieldAlert[];
   isActive: boolean;
   isArchived: boolean;
   createdAt: IsoDate;

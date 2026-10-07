@@ -1,6 +1,7 @@
 import type {
   ActivityCustomField,
   CustomFieldType,
+  FieldAlert,
   LogicalOperator,
   Project,
   ProjectCompliance,
@@ -54,6 +55,7 @@ export const projectsApi = {
       linearStatusFlow?: boolean;
       alwaysShowFields?: boolean;
       transitionGuards?: StatusTransitionGuard[];
+      fieldAlerts?: FieldAlert[];
     },
   ) => apiClient.patch<Project>(`/projects/${projectId}`, body),
   archive: (projectId: string) =>

@@ -6,6 +6,7 @@ import { projectsApi } from '../../services/api/projects.api';
 import { StatusesManager } from './StatusesManager';
 import { CustomFieldsManager } from './CustomFieldsManager';
 import { ComplianceConfig } from './ComplianceConfig';
+import { FieldAlertsConfig } from './FieldAlertsConfig';
 import { ProjectRulesConfig } from './ProjectRulesConfig';
 
 /** Configuracion del proyecto: nombre, estados, campos personalizados y reglas. */
@@ -72,6 +73,7 @@ export function ProjectConfig({
         onChanged={onChanged}
       />
       <ComplianceConfig project={project} onChanged={onChanged} />
+      <FieldAlertsConfig project={project} onChanged={onChanged} />
       <CustomFieldsManager
         projectId={project.id}
         fields={project.customFields}

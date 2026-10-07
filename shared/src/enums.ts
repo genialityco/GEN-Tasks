@@ -118,6 +118,26 @@ export enum NotificationChannel {
   BOTH = 'BOTH',
 }
 
+/** Momento en que se evalua una alerta por campo pendiente (`FieldAlert`). */
+export enum FieldAlertTrigger {
+  /** El dia de la fecha del evento, a partir de `sendAtHour` (hora Colombia). */
+  EVENT_DAY = 'EVENT_DAY',
+  /** `delayDays` dias despues de que se lleno el campo origen. */
+  AFTER_FIELD_FILLED = 'AFTER_FIELD_FILLED',
+}
+
+/** Tipo de destinatario de una alerta por campo pendiente. */
+export enum FieldAlertRecipientType {
+  /** Correo fijo (`value` = direccion). */
+  EMAIL = 'EMAIL',
+  /** WhatsApp a un telefono fijo (`value` = telefono). */
+  PHONE = 'PHONE',
+  /** Miembro de la organizacion (`value` = userId), por `memberChannel`. */
+  MEMBER = 'MEMBER',
+  /** Responsables de la actividad, por `memberChannel`. */
+  RESPONSIBLES = 'RESPONSIBLES',
+}
+
 /** Estado del flujo de una sesion de WhatsApp. */
 export enum WhatsappSessionState {
   IDLE = 'IDLE',

@@ -199,6 +199,27 @@ export class ProjectsService {
         message: g.message ?? null,
       }));
     }
+    if (dto.fieldAlerts !== undefined) {
+      // Objetos planos para Firestore; asigna id a las alertas nuevas (id '').
+      patch.fieldAlerts = dto.fieldAlerts.map((a) => ({
+        id: a.id || randomUUID(),
+        name: a.name,
+        enabled: a.enabled,
+        trigger: a.trigger,
+        requiredFieldKeys: [...a.requiredFieldKeys],
+        dateFieldKey: a.dateFieldKey ?? null,
+        sendAtHour: a.sendAtHour ?? null,
+        sourceFieldKey: a.sourceFieldKey ?? null,
+        delayDays: a.delayDays ?? null,
+        recipients: a.recipients.map((r) => ({
+          type: r.type,
+          value: r.value?.trim() || null,
+        })),
+        memberChannel: a.memberChannel ?? null,
+        subject: a.subject ?? null,
+        message: a.message,
+      }));
+    }
     await this.collection.doc(projectId).update(patch);
     return this.loadAccessible(projectId, user);
   }

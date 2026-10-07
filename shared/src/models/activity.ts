@@ -50,6 +50,12 @@ export interface Activity {
    * la misma alerta. Ver `StatusComplianceAlert` y el cron de cumplimiento.
    */
   complianceAlertsSent?: Record<string, IsoDate>;
+  /**
+   * Alertas por campo pendiente ya enviadas, con la fecha ISO de envio. Clave:
+   * `FieldAlert.id` (AFTER_FIELD_FILLED) o `<id>_<aaaa-mm-dd>` (EVENT_DAY, para
+   * volver a avisar si cambia la fecha del evento).
+   */
+  fieldAlertsSent?: Record<string, IsoDate>;
   isArchived: boolean;
   createdAt: IsoDate;
   updatedAt: IsoDate;

@@ -1,16 +1,25 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
+  Max,
   Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { LogicalOperator, WhatsappRecipientType } from '@gen-task/shared';
+import {
+  FieldAlertRecipientType,
+  FieldAlertTrigger,
+  LogicalOperator,
+  NotificationChannel,
+  WhatsappRecipientType,
+} from '@gen-task/shared';
 import { RuleConditionDto } from '../../gestores/dto/gestor-access-rule.dto';
 
 export class StatusComplianceAlertDto {
@@ -85,6 +94,71 @@ export class StatusTransitionGuardDto {
   message?: string;
 }
 
+export class FieldAlertRecipientDto {
+  @IsEnum(FieldAlertRecipientType)
+  type!: FieldAlertRecipientType;
+
+  @IsOptional()
+  @IsString()
+  value?: string;
+}
+
+export class FieldAlertDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @IsString()
+  @MinLength(1)
+  name!: string;
+
+  @IsBoolean()
+  enabled!: boolean;
+
+  @IsEnum(FieldAlertTrigger)
+  trigger!: FieldAlertTrigger;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  requiredFieldKeys!: string[];
+
+  @IsOptional()
+  @IsString()
+  dateFieldKey?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  sendAtHour?: number;
+
+  @IsOptional()
+  @IsString()
+  sourceFieldKey?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  delayDays?: number;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FieldAlertRecipientDto)
+  recipients!: FieldAlertRecipientDto[];
+
+  @IsOptional()
+  @IsIn(Object.values(NotificationChannel))
+  memberChannel?: NotificationChannel;
+
+  @IsOptional()
+  @IsString()
+  subject?: string;
+
+  @IsString()
+  message!: string;
+}
+
 export class UpdateProjectDto {
   @IsOptional()
   @IsString()
@@ -118,4 +192,10 @@ export class UpdateProjectDto {
   @ValidateNested({ each: true })
   @Type(() => StatusTransitionGuardDto)
   transitionGuards?: StatusTransitionGuardDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FieldAlertDto)
+  fieldAlerts?: FieldAlertDto[];
 }
