@@ -20,6 +20,7 @@ import {
   ProjectStatus,
   WhatsappChat,
   WhatsappMessage,
+  WhatsappProvider,
   WhatsappSession,
   WhatsappSessionState,
   WhatsappTemplateName,
@@ -34,6 +35,7 @@ import { normalizePhoneForWhatsApp } from '../common/phone';
 import { HostsService } from '../hosts/hosts.service';
 import { UsersService } from '../users/users.service';
 import { WhatsappCloudApiService } from './whatsapp-cloud-api.service';
+import { WhatsappWebService } from './whatsapp-web.service';
 import { OrganizationResolverService } from './organization-resolver.service';
 import { renderWhatsappTemplateFallback } from './whatsapp-templates.constants';
 
@@ -73,6 +75,7 @@ export class WhatsappService {
     private readonly firebase: FirebaseService,
     private readonly hosts: HostsService,
     private readonly cloudApi: WhatsappCloudApiService,
+    private readonly web: WhatsappWebService,
     private readonly orgResolver: OrganizationResolverService,
     private readonly users: UsersService,
   ) {}
@@ -214,14 +217,21 @@ export class WhatsappService {
   /**
    * Envia un mensaje del BOT a un telefono dado (asegurando el chat). Usado por
    * el motor de reglas (acciones SEND_WHATSAPP / REQUEST_HOST_INFORMATION).
+   * Con `provider` WEB sale por la cuenta vinculada por QR (libreria no
+   * oficial) y lanza error si no esta conectada.
    */
   async sendBotMessageToPhone(
     organizationId: string,
     phone: string,
     body: string,
+    provider: WhatsappProvider = WhatsappProvider.CLOUD_API,
   ): Promise<void> {
     const chat = await this.ensureChat(organizationId, phone);
-    await this.cloudApi.sendText({ to: phone, body });
+    if (provider === WhatsappProvider.WEB) {
+      await this.web.sendToPhone(organizationId, phone, body);
+    } else {
+      await this.cloudApi.sendText({ to: phone, body });
+    }
     await this.persistMessage({
       organizationId,
       chatId: chat.id,
@@ -239,13 +249,20 @@ export class WhatsappService {
    * ({{1}}, {{2}}, ...). Usado por el motor de reglas cuando la accion
    * SEND_WHATSAPP se configura en modo plantilla. Persiste el texto
    * equivalente renderizado para que el chat siga siendo legible en el panel.
+   * Con `provider` WEB no existen plantillas Meta: se envia ese mismo texto
+   * equivalente como mensaje normal.
    */
   async sendTemplateMessageToPhone(
     organizationId: string,
     phone: string,
     templateName: WhatsappTemplateName,
     params: string[],
+    provider: WhatsappProvider = WhatsappProvider.CLOUD_API,
   ): Promise<void> {
+    const rendered = renderWhatsappTemplateFallback(templateName, params);
+    if (provider === WhatsappProvider.WEB) {
+      return this.sendBotMessageToPhone(organizationId, phone, rendered, provider);
+    }
     const chat = await this.ensureChat(organizationId, phone);
     await this.cloudApi.sendTemplate({
       to: phone,
@@ -259,7 +276,7 @@ export class WhatsappService {
       direction: MessageDirection.OUTBOUND,
       senderType: MessageSenderType.BOT,
       messageType: MessageType.TEXT,
-      content: renderWhatsappTemplateFallback(templateName, params),
+      content: rendered,
     });
   }
 

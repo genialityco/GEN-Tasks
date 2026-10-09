@@ -28,8 +28,11 @@ import { organizationsApi } from '../../services/api/organizations.api';
 import { useAsync } from '../../hooks/useAsync';
 import { useToast } from '../toast/ToastProvider';
 
-/** Etiquetas de los tipos de destinatario (mismas que en las reglas). */
-const RECIPIENT_LABELS: Record<WhatsappRecipientType, string> = {
+/** Etiquetas de los tipos de destinatario (las de las reglas, sin grupos). */
+const RECIPIENT_LABELS: Record<
+  Exclude<WhatsappRecipientType, WhatsappRecipientType.GROUP>,
+  string
+> = {
   HOST: 'Host de la actividad',
   MEMBER: 'Un miembro de la organización',
   RESPONSIBLES: 'Responsables de la actividad',
@@ -246,9 +249,10 @@ function StatusAlertRow({
             />
             <Select
               label="Destinatario"
-              data={(Object.keys(RECIPIENT_LABELS) as WhatsappRecipientType[]).map(
-                (t) => ({ value: t, label: RECIPIENT_LABELS[t] }),
-              )}
+              data={Object.entries(RECIPIENT_LABELS).map(([value, label]) => ({
+                value,
+                label,
+              }))}
               value={recipientType}
               onChange={(v) =>
                 v && onChange({ recipientType: v as WhatsappRecipientType })

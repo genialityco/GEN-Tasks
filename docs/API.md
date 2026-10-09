@@ -84,6 +84,16 @@ Prefijo global: **`/api`**. Todas las rutas requieren
 | POST | `/whatsapp/chats/:chatId/messages` | autenticado |
 | PATCH | `/whatsapp/chats/:chatId/bot-toggle` | autenticado |
 | POST | `/whatsapp/chats/:chatId/request-info` | autenticado |
+| POST | `/organizations/:organizationId/whatsapp/test-message` | SUPER_ADMIN, ADMIN |
+
+### WhatsApp Web (librería no oficial, Baileys)
+| Método | Ruta | Acceso |
+|---|---|---|
+| GET | `/organizations/:organizationId/whatsapp/web/session` | SUPER_ADMIN, ADMIN |
+| POST | `/organizations/:organizationId/whatsapp/web/session/connect` | SUPER_ADMIN, ADMIN |
+| DELETE | `/organizations/:organizationId/whatsapp/web/session` | SUPER_ADMIN, ADMIN |
+| GET | `/organizations/:organizationId/whatsapp/web/groups` | SUPER_ADMIN, ADMIN |
+| POST | `/organizations/:organizationId/whatsapp/web/groups/messages` | SUPER_ADMIN, ADMIN |
 
 ## Plantillas de mensajes
 | Método | Ruta | Acceso |

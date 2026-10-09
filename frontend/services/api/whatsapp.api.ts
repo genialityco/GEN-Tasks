@@ -3,13 +3,21 @@ import type {
   WhatsappGroup,
   WhatsappGroupJoinApprovalMode,
   WhatsappMessage,
+  WhatsappProvider,
   WhatsappTemplateName,
+  WhatsappWebGroup,
+  WhatsappWebSessionStatus,
 } from '@gen-task/shared';
 import { apiClient } from './client';
 
-/** Cuerpo de un envio de prueba: texto libre (`body`) o plantilla Meta. */
+/**
+ * Cuerpo de un envio de prueba: texto libre (`body`) o plantilla Meta, a un
+ * telefono o a un grupo (`groupId`), por la API oficial o WhatsApp Web.
+ */
 export interface SendTestMessagePayload {
-  phone: string;
+  phone?: string;
+  groupId?: string;
+  provider?: WhatsappProvider;
   body?: string;
   templateName?: WhatsappTemplateName;
   templateParams?: string[];
@@ -67,5 +75,32 @@ export const whatsappApi = {
   deleteGroup: (organizationId: string, groupId: string) =>
     apiClient.delete<{ deleted: true }>(
       `/organizations/${organizationId}/whatsapp/groups/${groupId}`,
+    ),
+};
+
+/** WhatsApp Web (libreria no oficial): numero vinculado por QR y sus grupos. */
+export const whatsappWebApi = {
+  getSession: (organizationId: string) =>
+    apiClient.get<WhatsappWebSessionStatus>(
+      `/organizations/${organizationId}/whatsapp/web/session`,
+    ),
+  /** Sin `phone` se vincula por QR; con `phone`, por codigo de 8 caracteres. */
+  connect: (organizationId: string, phone?: string) =>
+    apiClient.post<WhatsappWebSessionStatus>(
+      `/organizations/${organizationId}/whatsapp/web/session/connect`,
+      phone ? { phone } : {},
+    ),
+  disconnect: (organizationId: string) =>
+    apiClient.delete<WhatsappWebSessionStatus>(
+      `/organizations/${organizationId}/whatsapp/web/session`,
+    ),
+  listGroups: (organizationId: string) =>
+    apiClient.get<WhatsappWebGroup[]>(
+      `/organizations/${organizationId}/whatsapp/web/groups`,
+    ),
+  sendGroupMessage: (organizationId: string, groupId: string, body: string) =>
+    apiClient.post<{ sent: true }>(
+      `/organizations/${organizationId}/whatsapp/web/groups/messages`,
+      { groupId, body },
     ),
 };

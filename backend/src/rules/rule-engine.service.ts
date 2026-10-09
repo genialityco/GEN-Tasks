@@ -13,6 +13,7 @@ import {
   RuleEvent,
   User,
   UserRole,
+  WhatsappProvider,
   WhatsappRecipientType,
   WhatsappTemplateName,
 } from '@gen-task/shared';
@@ -27,6 +28,8 @@ import {
 import { ActivityHistoryService } from '../activity-history/activity-history.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { WhatsappTemplatesService } from '../whatsapp/whatsapp-templates.service';
+import { WhatsappGroupsService } from '../whatsapp/whatsapp-groups.service';
+import { renderWhatsappTemplateFallback } from '../whatsapp/whatsapp-templates.constants';
 import { ProjectsService } from '../projects/projects.service';
 import { normalizePhoneForWhatsApp } from '../common/phone';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -58,6 +61,7 @@ export class RuleEngineService {
     private readonly history: ActivityHistoryService,
     private readonly whatsapp: WhatsappService,
     private readonly whatsappTemplates: WhatsappTemplatesService,
+    private readonly whatsappGroups: WhatsappGroupsService,
     private readonly projects: ProjectsService,
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
@@ -396,6 +400,29 @@ export class RuleEngineService {
         const message = rawMessage
           ? interpolate(rawMessage, buildActivityVars(activity, project, varOpts))
           : undefined;
+        // Proveedor elegido en la regla: API oficial (por defecto) o la
+        // libreria no oficial (WhatsApp Web, numero vinculado por QR).
+        const provider =
+          (payload.provider as WhatsappProvider | undefined) ??
+          WhatsappProvider.CLOUD_API;
+
+        if (
+          (payload.recipientType as WhatsappRecipientType | undefined) ===
+          WhatsappRecipientType.GROUP
+        ) {
+          const sent = await this.sendToGroup(
+            rule,
+            provider,
+            payload,
+            templateName,
+            message,
+            activity,
+            project,
+          );
+          if (sent) await this.recordWhatsappNotification(rule, payload, activity, ctx);
+          return activity;
+        }
+
         const recipients = await this.resolveRecipients(payload, activity);
         if (recipients.length === 0) {
           this.logger.debug(
@@ -403,53 +430,121 @@ export class RuleEngineService {
           );
           return activity;
         }
+        let sentCount = 0;
         for (const r of recipients) {
           // Todos los destinatarios (contactos externos o personal interno)
           // quedan registrados como chat, para que el mensaje sea visible en
           // la ventana de Chats WhatsApp.
-          if (templateName) {
-            const params = this.buildTemplateParams(
-              templateName,
-              r.name,
-              activity,
-              project,
-              message,
-            );
-            await this.whatsappTemplates.sendByTemplateName(
-              activity.organizationId,
-              r.phone,
-              templateName,
-              params,
-            );
-          } else {
-            await this.whatsapp.sendBotMessageToPhone(
-              activity.organizationId,
-              r.phone,
-              message!,
+          try {
+            if (templateName) {
+              const params = this.buildTemplateParams(
+                templateName,
+                r.name,
+                activity,
+                project,
+                message,
+              );
+              await this.whatsappTemplates.sendByTemplateName(
+                activity.organizationId,
+                r.phone,
+                templateName,
+                params,
+                provider,
+              );
+            } else {
+              await this.whatsapp.sendBotMessageToPhone(
+                activity.organizationId,
+                r.phone,
+                message!,
+                provider,
+              );
+            }
+            sentCount++;
+          } catch (err) {
+            // Un destinatario fallido (p. ej. WhatsApp Web desconectado) no
+            // debe impedir el resto de envios ni las demas acciones.
+            this.logger.warn(
+              `WhatsApp de la regla "${rule.name}" a ${r.phone} (${provider}) fallo: ${(err as Error).message}`,
             );
           }
         }
-        await this.history.recordNotification({
-          activityId: activity.id,
-          organizationId: activity.organizationId,
-          projectId: activity.projectId,
-          changedBy: ctx.actorId,
-          changedByRole: ctx.actorRole,
-          ruleName: rule.name,
-          notificationChannel: NotificationChannel.WHATSAPP,
-          notificationRecipient: this.resolveRecipientLabel(payload),
-          notificationRecipientIds:
-            (payload.recipientType as WhatsappRecipientType) ===
-            WhatsappRecipientType.MEMBER
-              ? [payload.recipientUserId as string].filter(Boolean)
-              : undefined,
-        });
+        if (sentCount > 0) {
+          await this.recordWhatsappNotification(rule, payload, activity, ctx);
+        }
         return activity;
       }
 
       default:
         return activity;
     }
+  }
+
+  /**
+   * Envia el WhatsApp de una regla a un grupo (`payload.recipientGroupId`) por
+   * el proveedor elegido: un solo mensaje para todo el grupo. A los grupos se
+   * envia texto; si la regla usa plantilla, se envia su texto equivalente con
+   * "equipo" como {{1}}. Devuelve si se envio.
+   */
+  private async sendToGroup(
+    rule: ProjectRule,
+    provider: WhatsappProvider,
+    payload: Record<string, unknown>,
+    templateName: WhatsappTemplateName | undefined,
+    message: string | undefined,
+    activity: Activity,
+    project: Project,
+  ): Promise<boolean> {
+    const groupId = payload.recipientGroupId as string | undefined;
+    if (!groupId) {
+      this.logger.debug(
+        `Accion WhatsApp de la regla "${rule.name}" omitida: no tiene grupo configurado.`,
+      );
+      return false;
+    }
+    const body = templateName
+      ? renderWhatsappTemplateFallback(
+          templateName,
+          this.buildTemplateParams(templateName, 'equipo', activity, project, message),
+        )
+      : message!;
+    try {
+      await this.whatsappGroups.sendMessageVia(
+        activity.organizationId,
+        provider,
+        groupId,
+        body,
+      );
+      return true;
+    } catch (err) {
+      this.logger.warn(
+        `WhatsApp de la regla "${rule.name}" al grupo ${groupId} (${provider}) fallo: ${(err as Error).message}`,
+      );
+      return false;
+    }
+  }
+
+  /** Registra en el historial de la actividad la notificacion WhatsApp de una regla. */
+  private async recordWhatsappNotification(
+    rule: ProjectRule,
+    payload: Record<string, unknown>,
+    activity: Activity,
+    ctx: RuleContext,
+  ): Promise<void> {
+    await this.history.recordNotification({
+      activityId: activity.id,
+      organizationId: activity.organizationId,
+      projectId: activity.projectId,
+      changedBy: ctx.actorId,
+      changedByRole: ctx.actorRole,
+      ruleName: rule.name,
+      notificationChannel: NotificationChannel.WHATSAPP,
+      notificationRecipient: this.resolveRecipientLabel(payload),
+      notificationRecipientIds:
+        (payload.recipientType as WhatsappRecipientType) ===
+        WhatsappRecipientType.MEMBER
+          ? [payload.recipientUserId as string].filter(Boolean)
+          : undefined,
+    });
   }
 
   /**
@@ -581,6 +676,13 @@ export class RuleEngineService {
 
   /** Etiqueta legible del destinatario de una accion WhatsApp (para el historial). */
   private resolveRecipientLabel(payload: Record<string, unknown>): string {
+    const label = this.recipientTypeLabel(payload);
+    return payload.provider === WhatsappProvider.WEB
+      ? `${label} (WhatsApp Web)`
+      : label;
+  }
+
+  private recipientTypeLabel(payload: Record<string, unknown>): string {
     const type =
       (payload.recipientType as WhatsappRecipientType | undefined) ??
       WhatsappRecipientType.HOST;
@@ -593,6 +695,8 @@ export class RuleEngineService {
         return `Teléfono: ${payload.recipientPhone ?? '—'}`;
       case WhatsappRecipientType.MEMBER:
         return 'Miembro de la organización';
+      case WhatsappRecipientType.GROUP:
+        return `Grupo: ${payload.recipientGroupName ?? payload.recipientGroupId ?? '—'}`;
       default:
         return '—';
     }

@@ -9,6 +9,7 @@ import {
   FirestoreCollections,
   WhatsappGroup,
   WhatsappGroupJoinApprovalMode,
+  WhatsappProvider,
 } from '@gen-task/shared';
 import { FirebaseService } from '../firebase/firebase.service';
 import {
@@ -16,6 +17,7 @@ import {
   snapshotToEntities,
 } from '../firebase/firestore.helpers';
 import { WhatsappCloudApiService } from './whatsapp-cloud-api.service';
+import { WhatsappWebService } from './whatsapp-web.service';
 
 /** Evento de grupo normalizado desde el webhook (`value.groups[]`). */
 export interface GroupWebhookEvent {
@@ -57,6 +59,7 @@ export class WhatsappGroupsService {
   constructor(
     private readonly firebase: FirebaseService,
     private readonly cloudApi: WhatsappCloudApiService,
+    private readonly web: WhatsappWebService,
   ) {}
 
   private get collection() {
@@ -137,6 +140,24 @@ export class WhatsappGroupsService {
     const group = await this.getActive(organizationId, id);
     await this.callMeta(() => this.cloudApi.sendGroupText(group.groupId!, body));
     return { sent: true };
+  }
+
+  /**
+   * Envia un texto a un grupo por el proveedor indicado. `groupId` es el id
+   * del documento `WhatsappGroup` (CLOUD_API, Groups API de Meta) o el JID
+   * del grupo en la cuenta vinculada por QR (WEB, libreria no oficial).
+   */
+  async sendMessageVia(
+    organizationId: string,
+    provider: WhatsappProvider,
+    groupId: string,
+    body: string,
+  ): Promise<{ sent: true }> {
+    if (provider === WhatsappProvider.WEB) {
+      await this.web.sendToGroup(organizationId, groupId, body);
+      return { sent: true };
+    }
+    return this.sendMessage(organizationId, groupId, body);
   }
 
   /**

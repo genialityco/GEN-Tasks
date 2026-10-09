@@ -9,6 +9,7 @@ import { MessageTemplatesController } from './message-templates.controller';
 import { MessageTemplatesService } from './message-templates.service';
 import { WhatsappTemplatesService } from './whatsapp-templates.service';
 import { WhatsappGroupsService } from './whatsapp-groups.service';
+import { WhatsappWebService } from './whatsapp-web.service';
 
 @Module({
   imports: [HostsModule, UsersModule],
@@ -20,12 +21,14 @@ import { WhatsappGroupsService } from './whatsapp-groups.service';
     MessageTemplatesService,
     WhatsappTemplatesService,
     WhatsappGroupsService,
+    WhatsappWebService,
   ],
   exports: [
     WhatsappService,
     WhatsappCloudApiService,
     MessageTemplatesService,
     WhatsappTemplatesService,
+    WhatsappGroupsService,
   ],
 })
 export class WhatsappModule {}

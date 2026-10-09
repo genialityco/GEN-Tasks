@@ -86,6 +86,27 @@ export enum WhatsappRecipientType {
   RESPONSIBLES = 'RESPONSIBLES',
   /** Un numero de telefono fijo escrito en la regla (`recipientPhone`). */
   PHONE = 'PHONE',
+  /**
+   * Un grupo de WhatsApp (`recipientGroupId`). Con CLOUD_API es el id del
+   * documento `WhatsappGroup` (Groups API de Meta); con WEB es el JID del
+   * grupo (`...@g.us`) en la cuenta vinculada por QR.
+   */
+  GROUP = 'GROUP',
+}
+
+/**
+ * Proveedor por el que se envia un WhatsApp saliente desde una regla. Si no se
+ * especifica, se asume CLOUD_API (comportamiento previo).
+ */
+export enum WhatsappProvider {
+  /** WhatsApp Cloud API oficial de Meta. */
+  CLOUD_API = 'CLOUD_API',
+  /**
+   * Libreria no oficial (Baileys, protocolo de WhatsApp Web) sobre un numero
+   * vinculado por QR a la organizacion. No usa plantillas Meta: se envia el
+   * texto equivalente.
+   */
+  WEB = 'WEB',
 }
 
 /**
@@ -190,6 +211,8 @@ export const FirestoreCollections = {
   WHATSAPP_CHATS: 'whatsapp_chats',
   WHATSAPP_MESSAGES: 'whatsapp_messages',
   WHATSAPP_GROUPS: 'whatsapp_groups',
+  /** Sesion de WhatsApp Web (libreria no oficial) por organizacion; subcoleccion `auth`. */
+  WHATSAPP_WEB_SESSIONS: 'whatsapp_web_sessions',
   MESSAGE_TEMPLATES: 'message_templates',
   CONTACTS: 'contacts',
 } as const;

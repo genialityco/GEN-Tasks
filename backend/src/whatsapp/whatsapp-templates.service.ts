@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { WhatsappTemplateName } from '@gen-task/shared';
+import { WhatsappProvider, WhatsappTemplateName } from '@gen-task/shared';
 import { WhatsappService } from './whatsapp.service';
 
 /**
@@ -118,19 +118,21 @@ export class WhatsappTemplatesService {
    * Envio generico por nombre de plantilla + parametros posicionales ya
    * resueltos. Usado por el motor de reglas (accion SEND_WHATSAPP en modo
    * plantilla), donde la plantilla la elige el admin desde la configuracion
-   * del proyecto.
+   * del proyecto. Con `provider` WEB se envia el texto equivalente.
    */
   sendByTemplateName(
     organizationId: string,
     phone: string,
     templateName: WhatsappTemplateName,
     params: string[],
+    provider?: WhatsappProvider,
   ): Promise<void> {
     return this.whatsapp.sendTemplateMessageToPhone(
       organizationId,
       phone,
       templateName,
       params,
+      provider,
     );
   }
 }

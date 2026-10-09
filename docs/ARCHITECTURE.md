@@ -80,7 +80,15 @@ Evalúa `RuleCondition[]` con `AND`/`OR` sobre una actividad. Se reutiliza para:
   escenarios sin reescribir el flujo.
 - **Control manual por chat**: `whatsapp_chats.botEnabled`. Tomar un chat
   desactiva el bot **solo** para ese chat, no para la organización.
-- `WhatsappCloudApiService` centraliza el envío saliente.
+- `WhatsappCloudApiService` centraliza el envío saliente por la API oficial.
+- `WhatsappWebService` envía por la librería **no oficial** Baileys (protocolo de
+  WhatsApp Web): cada organización vincula un número por QR y la sesión se guarda
+  en `whatsapp_web_sessions/{organizationId}/auth`. Permite escribir a los grupos
+  de esa cuenta con un solo mensaje. Las acciones `SEND_WHATSAPP` /
+  `REQUEST_HOST_INFORMATION` de las reglas eligen proveedor con
+  `payload.provider` (`CLOUD_API` por defecto | `WEB`) y pueden enviar a un grupo
+  (`recipientType: GROUP` + `recipientGroupId`). Debe correr en una sola
+  instancia del backend (`WHATSAPP_WEB_ENABLED=false` en las demás).
 
 ## Storage
 

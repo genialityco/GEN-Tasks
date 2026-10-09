@@ -128,3 +128,42 @@ export interface WhatsappGroup {
   createdAt: IsoDate;
   updatedAt: IsoDate;
 }
+
+/**
+ * Estado de la conexion de WhatsApp Web (libreria no oficial) de una
+ * organizacion. QR = esperando la vinculacion desde el telefono (por codigo QR
+ * o por codigo de 8 caracteres).
+ */
+export type WhatsappWebConnectionStatus =
+  | 'DISCONNECTED'
+  | 'CONNECTING'
+  | 'QR'
+  | 'CONNECTED';
+
+/** Estado de la sesion de WhatsApp Web de una organizacion (para el panel). */
+export interface WhatsappWebSessionStatus {
+  organizationId: string;
+  status: WhatsappWebConnectionStatus;
+  /** QR (data URL PNG) a escanear desde WhatsApp > Dispositivos vinculados. */
+  qrDataUrl?: string;
+  /**
+   * Codigo de 8 caracteres (vinculacion por numero de telefono, alternativa
+   * al QR) a ingresar en WhatsApp > Dispositivos vinculados.
+   */
+  pairingCode?: string;
+  /** Numero vinculado (solo digitos) cuando hay sesion. */
+  phone?: string;
+  /** Nombre de perfil de la cuenta vinculada. */
+  name?: string;
+  /** Ultimo error de conexion (p. ej. sesion cerrada desde el telefono). */
+  lastError?: string;
+}
+
+/** Grupo de la cuenta vinculada por WhatsApp Web. */
+export interface WhatsappWebGroup {
+  /** JID del grupo (`...@g.us`). */
+  id: string;
+  subject: string;
+  /** Numero de participantes. */
+  size: number;
+}

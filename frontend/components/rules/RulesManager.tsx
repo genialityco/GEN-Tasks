@@ -25,6 +25,7 @@ import {
   RuleActionType,
   RuleEvent,
   UserRole,
+  WhatsappProvider,
   WhatsappRecipientType,
   WhatsappTemplateName,
   type ActivityCustomField,
@@ -35,7 +36,7 @@ import {
 } from '@gen-task/shared';
 import { rulesApi } from '../../services/api/rules.api';
 import { organizationsApi } from '../../services/api/organizations.api';
-import { whatsappApi } from '../../services/api/whatsapp.api';
+import { whatsappApi, whatsappWebApi } from '../../services/api/whatsapp.api';
 import { useAsync } from '../../hooks/useAsync';
 import { useToast } from '../toast/ToastProvider';
 import {
@@ -91,6 +92,13 @@ const RECIPIENT_LABELS: Record<WhatsappRecipientType, string> = {
   MEMBER: 'Un miembro de la organización',
   RESPONSIBLES: 'Responsables de la actividad',
   PHONE: 'Teléfono manual',
+  GROUP: 'Grupo de WhatsApp',
+};
+
+/** Proveedores por los que puede salir el WhatsApp de una regla. */
+const PROVIDER_LABELS: Record<WhatsappProvider, string> = {
+  CLOUD_API: 'API oficial (Meta)',
+  WEB: 'WhatsApp Web (no oficial)',
 };
 
 /** Etiquetas de los canales por los que se puede notificar al responsable. */
@@ -164,6 +172,12 @@ interface ActionDraft {
   recipientType: WhatsappRecipientType;
   /** Telefono fijo cuando el destinatario es PHONE. */
   recipientPhone: string;
+  /** Proveedor de envio (SEND_WHATSAPP / REQUEST_HOST_INFORMATION). */
+  provider: WhatsappProvider;
+  /** Grupo destino cuando el destinatario es GROUP: doc WhatsappGroup (CLOUD_API) o JID (WEB). */
+  recipientGroupId: string;
+  /** Nombre del grupo, para mostrarlo sin consultar el proveedor. */
+  recipientGroupName: string;
   /** Plantilla Meta a usar (SEND_WHATSAPP). Vacio = texto libre (comportamiento previo). */
   templateName: WhatsappTemplateName | '';
   /** Canal por el que se notifica al responsable (ASSIGN_RESPONSIBLE). */
@@ -181,6 +195,9 @@ function emptyActionDraft(): ActionDraft {
     responsibleId: '',
     recipientType: WhatsappRecipientType.HOST,
     recipientPhone: '',
+    provider: WhatsappProvider.CLOUD_API,
+    recipientGroupId: '',
+    recipientGroupName: '',
     templateName: '',
     notificationChannel: NotificationChannel.WHATSAPP,
     cfDrafts: [emptyFieldDraft()],
@@ -201,7 +218,12 @@ function buildActionPayload(a: ActionDraft): {
     payload.message = a.message;
   }
   if (WHATSAPP_RECIPIENT_ACTIONS.includes(a.type)) {
+    payload.provider = a.provider;
     payload.recipientType = a.recipientType;
+    if (a.recipientType === WhatsappRecipientType.GROUP) {
+      payload.recipientGroupId = a.recipientGroupId;
+      payload.recipientGroupName = a.recipientGroupName;
+    }
     if (a.recipientType === WhatsappRecipientType.MEMBER) {
       payload.recipientUserId = a.responsibleId;
     }
@@ -283,6 +305,10 @@ function actionToDraft(a: RuleAction): ActionDraft {
     recipientType:
       (p.recipientType as WhatsappRecipientType) ?? WhatsappRecipientType.HOST,
     recipientPhone: typeof p.recipientPhone === 'string' ? p.recipientPhone : '',
+    provider: (p.provider as WhatsappProvider) ?? WhatsappProvider.CLOUD_API,
+    recipientGroupId: typeof p.recipientGroupId === 'string' ? p.recipientGroupId : '',
+    recipientGroupName:
+      typeof p.recipientGroupName === 'string' ? p.recipientGroupName : '',
     templateName:
       typeof p.templateName === 'string'
         ? (p.templateName as WhatsappTemplateName)
@@ -356,8 +382,8 @@ function interpolateWithSamples(text: string, fields: ActivityCustomField[]): st
 function sampleTemplateParams(
   templateName: WhatsappTemplateName,
   freeMessage: string,
+  nombre = 'Nombre de prueba',
 ): string[] {
-  const nombre = 'Nombre de prueba';
   const actividad = SAMPLE_VALUES.activityName;
   const proyecto = SAMPLE_VALUES.projectName;
   if (templateName === WhatsappTemplateName.NOTIFICACION_ACTIVIDAD_UTILIDAD) {
@@ -520,6 +546,8 @@ export function RulesManager({
         recipDesc = memberName(String(p.recipientUserId));
       } else if (recipType === WhatsappRecipientType.PHONE && p.recipientPhone) {
         recipDesc = String(p.recipientPhone);
+      } else if (recipType === WhatsappRecipientType.GROUP) {
+        recipDesc = `grupo ${String(p.recipientGroupName || p.recipientGroupId || '—')}`;
       }
       const label =
         a.type === RuleActionType.SEND_WHATSAPP ? 'Enviar WhatsApp a' : 'Solicitar info a';
@@ -528,7 +556,9 @@ export function RulesManager({
         templateName && WHATSAPP_TEMPLATE_LABELS[templateName]
           ? ` (plantilla: ${WHATSAPP_TEMPLATE_LABELS[templateName]})`
           : '';
-      return `${label}: ${recipDesc}${templateSuffix}`;
+      const providerSuffix =
+        p.provider === WhatsappProvider.WEB ? ' · WhatsApp Web' : '';
+      return `${label}: ${recipDesc}${templateSuffix}${providerSuffix}`;
     }
     return ACTION_LABELS[a.type];
   }
@@ -659,20 +689,26 @@ function RuleFormModal({
 
   async function sendTestMessage(actionIndex: number) {
     const act = actions[actionIndex];
+    const toGroup = act.recipientType === WhatsappRecipientType.GROUP;
     const phone = (testPhones[actionIndex] ?? '').trim();
-    if (!phone) {
-      toast.error('Ingresa un teléfono para la prueba.');
+    if (toGroup ? !act.recipientGroupId : !phone) {
+      toast.error(toGroup ? 'Selecciona un grupo.' : 'Ingresa un teléfono para la prueba.');
       return;
     }
+    // Prueba al grupo configurado en la accion, o al telefono escrito.
+    const target = toGroup
+      ? { groupId: act.recipientGroupId, provider: act.provider }
+      : { phone, provider: act.provider };
     setTestingIndex(actionIndex);
     try {
       if (act.templateName) {
         const templateParams = sampleTemplateParams(
           act.templateName,
           interpolateWithSamples(act.message, fields),
+          toGroup ? 'equipo' : undefined,
         );
         await whatsappApi.sendTestMessage(organizationId, {
-          phone,
+          ...target,
           templateName: act.templateName,
           templateParams,
         });
@@ -682,7 +718,7 @@ function RuleFormModal({
           toast.error('Escribe un mensaje antes de enviar la prueba.');
           return;
         }
-        await whatsappApi.sendTestMessage(organizationId, { phone, body });
+        await whatsappApi.sendTestMessage(organizationId, { ...target, body });
       }
       toast.success('Mensaje de prueba enviado.');
     } catch (err) {
@@ -690,6 +726,48 @@ function RuleFormModal({
     } finally {
       setTestingIndex(null);
     }
+  }
+
+  // Grupos disponibles como destino, segun el proveedor de cada accion. Solo
+  // se consultan si alguna accion envia a un grupo por ese proveedor.
+  const groupProviders = new Set(
+    actions
+      .filter(
+        (a) =>
+          WHATSAPP_RECIPIENT_ACTIONS.includes(a.type) &&
+          a.recipientType === WhatsappRecipientType.GROUP,
+      )
+      .map((a) => a.provider),
+  );
+  const needsCloudGroups = groupProviders.has(WhatsappProvider.CLOUD_API);
+  const needsWebGroups = groupProviders.has(WhatsappProvider.WEB);
+  const cloudGroups = useAsync(
+    () => (needsCloudGroups ? whatsappApi.listGroups(organizationId) : Promise.resolve(null)),
+    [organizationId, needsCloudGroups],
+  );
+  const webGroups = useAsync(
+    () => (needsWebGroups ? whatsappWebApi.listGroups(organizationId) : Promise.resolve(null)),
+    [organizationId, needsWebGroups],
+  );
+
+  /** Opciones del selector de grupo; conserva el guardado aunque no este en la lista. */
+  function groupOptions(act: ActionDraft): { value: string; label: string }[] {
+    const options =
+      act.provider === WhatsappProvider.WEB
+        ? (webGroups.data ?? []).map((g) => ({
+            value: g.id,
+            label: `${g.subject} (${g.size})`,
+          }))
+        : (cloudGroups.data ?? [])
+            .filter((g) => g.status === 'ACTIVE')
+            .map((g) => ({ value: g.id, label: g.subject }));
+    if (act.recipientGroupId && !options.some((o) => o.value === act.recipientGroupId)) {
+      options.unshift({
+        value: act.recipientGroupId,
+        label: act.recipientGroupName || act.recipientGroupId,
+      });
+    }
+    return options;
   }
 
   const activeStatuses = statuses.filter((s) => !s.isArchived);
@@ -959,6 +1037,27 @@ function RuleFormModal({
                 )}
                 {WHATSAPP_RECIPIENT_ACTIONS.includes(act.type) && (
                   <Select
+                    label="Enviar por"
+                    data={(Object.keys(PROVIDER_LABELS) as WhatsappProvider[]).map((p) => ({
+                      value: p,
+                      label: PROVIDER_LABELS[p],
+                    }))}
+                    value={act.provider}
+                    onChange={(v) =>
+                      v &&
+                      updateAction(ai, {
+                        provider: v as WhatsappProvider,
+                        // Los ids de grupo no son intercambiables entre proveedores.
+                        recipientGroupId: '',
+                        recipientGroupName: '',
+                      })
+                    }
+                    allowDeselect={false}
+                    w={230}
+                  />
+                )}
+                {WHATSAPP_RECIPIENT_ACTIONS.includes(act.type) && (
+                  <Select
                     label="Enviar a"
                     data={(Object.keys(RECIPIENT_LABELS) as WhatsappRecipientType[]).map(
                       (t) => ({ value: t, label: RECIPIENT_LABELS[t] }),
@@ -987,6 +1086,24 @@ function RuleFormModal({
                     />
                   )}
                 {WHATSAPP_RECIPIENT_ACTIONS.includes(act.type) &&
+                  act.recipientType === WhatsappRecipientType.GROUP && (
+                    <Select
+                      label="Grupo"
+                      placeholder="Selecciona..."
+                      data={groupOptions(act)}
+                      value={act.recipientGroupId || null}
+                      onChange={(v, option) =>
+                        updateAction(ai, {
+                          recipientGroupId: v ?? '',
+                          recipientGroupName: option?.label.replace(/ \(\d+\)$/, '') ?? '',
+                        })
+                      }
+                      searchable
+                      nothingFoundMessage="Sin grupos disponibles"
+                      w={260}
+                    />
+                  )}
+                {WHATSAPP_RECIPIENT_ACTIONS.includes(act.type) &&
                   act.recipientType === WhatsappRecipientType.PHONE && (
                     <TextInput
                       label="Teléfono"
@@ -1001,7 +1118,12 @@ function RuleFormModal({
                 {WHATSAPP_TEMPLATE_ACTIONS.includes(act.type) && (
                   <Select
                     label="Plantilla de WhatsApp"
-                    description="Meta requiere plantillas aprobadas fuera de la ventana de 24h"
+                    description={
+                      act.provider === WhatsappProvider.WEB ||
+                      act.recipientType === WhatsappRecipientType.GROUP
+                        ? 'Se envía el texto equivalente de la plantilla'
+                        : 'Meta requiere plantillas aprobadas fuera de la ventana de 24h'
+                    }
                     data={[
                       { value: '', label: '— Texto libre —' },
                       ...(Object.keys(WHATSAPP_TEMPLATE_LABELS) as WhatsappTemplateName[]).map(
@@ -1030,9 +1152,21 @@ function RuleFormModal({
                 )}
               </Group>
 
+              {WHATSAPP_RECIPIENT_ACTIONS.includes(act.type) &&
+                act.recipientType === WhatsappRecipientType.GROUP && (
+                  <GroupRecipientNotice
+                    provider={act.provider}
+                    error={
+                      act.provider === WhatsappProvider.WEB ? webGroups.error : cloudGroups.error
+                    }
+                  />
+                )}
+
               {WHATSAPP_TEMPLATE_ACTIONS.includes(act.type) && act.templateName && (
                 <Alert color="blue" variant="light">
                   {WHATSAPP_TEMPLATE_HINTS[act.templateName]}
+                  {act.recipientType === WhatsappRecipientType.GROUP &&
+                    ' En grupos, {{1}} es "equipo".'}
                 </Alert>
               )}
 
@@ -1054,7 +1188,22 @@ function RuleFormModal({
                   />
                 )}
 
-              {WHATSAPP_RECIPIENT_ACTIONS.includes(act.type) && (
+              {WHATSAPP_RECIPIENT_ACTIONS.includes(act.type) &&
+                act.recipientType === WhatsappRecipientType.GROUP && (
+                  <Button
+                    type="button"
+                    variant="light"
+                    loading={testingIndex === ai}
+                    disabled={!act.recipientGroupId}
+                    onClick={() => sendTestMessage(ai)}
+                    style={{ alignSelf: 'flex-start' }}
+                  >
+                    Enviar prueba al grupo
+                  </Button>
+                )}
+
+              {WHATSAPP_RECIPIENT_ACTIONS.includes(act.type) &&
+                act.recipientType !== WhatsappRecipientType.GROUP && (
                 <Group gap="sm" align="flex-end" wrap="wrap">
                   <TextInput
                     label="Probar envío"
@@ -1183,5 +1332,28 @@ function RuleFormModal({
         </Stack>
       </form>
     </Modal>
+  );
+}
+
+/**
+ * Aclara como se entrega el WhatsApp a un grupo segun el proveedor, y muestra
+ * el error al cargar los grupos (p. ej. WhatsApp Web sin numero vinculado).
+ */
+function GroupRecipientNotice({
+  provider,
+  error,
+}: {
+  provider: WhatsappProvider;
+  error: string | null;
+}) {
+  if (error) {
+    return <Alert color="red" variant="light">{error}</Alert>;
+  }
+  return (
+    <Text size="xs" c="dimmed">
+      {provider === WhatsappProvider.WEB
+        ? 'Se envía un solo mensaje al grupo desde el número vinculado en ChatWhatsapp → WhatsApp Web (debe ser miembro del grupo).'
+        : 'Se envía un solo mensaje al grupo creado con la Groups API de Meta (ChatWhatsapp → Grupos).'}
+    </Text>
   );
 }

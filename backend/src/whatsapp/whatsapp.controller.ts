@@ -10,7 +10,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { AuthenticatedUser, MessageType, UserRole } from '@gen-task/shared';
+import {
+  AuthenticatedUser,
+  MessageType,
+  UserRole,
+  WhatsappProvider,
+} from '@gen-task/shared';
 import { ConfigService } from '@nestjs/config';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
@@ -27,11 +32,15 @@ import {
   GroupWebhookEvent,
   WhatsappGroupsService,
 } from './whatsapp-groups.service';
+import { WhatsappWebService } from './whatsapp-web.service';
+import { renderWhatsappTemplateFallback } from './whatsapp-templates.constants';
 import {
+  ConnectWebSessionDto,
   CreateWhatsappGroupDto,
   RequestInfoDto,
   SendMessageDto,
   SendTestMessageDto,
+  SendWebGroupMessageDto,
   ToggleBotDto,
 } from './dto/whatsapp.dto';
 
@@ -45,6 +54,7 @@ export class WhatsappController {
     private readonly whatsapp: WhatsappService,
     private readonly whatsappTemplates: WhatsappTemplatesService,
     private readonly whatsappGroups: WhatsappGroupsService,
+    private readonly whatsappWeb: WhatsappWebService,
     private readonly config: ConfigService,
   ) {}
 
@@ -94,9 +104,9 @@ export class WhatsappController {
 
   /**
    * Envia un mensaje de prueba (texto libre o plantilla Meta) a un telefono
-   * arbitrario. Usado por el formulario de automatizaciones para verificar,
-   * antes de guardar la regla, que el mensaje/plantilla configurado realmente
-   * se entrega.
+   * arbitrario o a un grupo (`groupId`), por el proveedor elegido. Usado por
+   * el formulario de automatizaciones para verificar, antes de guardar la
+   * regla, que el mensaje/plantilla configurado realmente se entrega.
    */
   @Post('organizations/:organizationId/whatsapp/test-message')
   @UseGuards(RolesGuard, OrganizationAccessGuard)
@@ -105,6 +115,22 @@ export class WhatsappController {
     @Param('organizationId') organizationId: string,
     @Body() dto: SendTestMessageDto,
   ): Promise<{ sent: true }> {
+    const provider = dto.provider ?? WhatsappProvider.CLOUD_API;
+    if (dto.groupId) {
+      // A los grupos se envia texto: con plantilla, su texto equivalente.
+      const body = dto.templateName
+        ? renderWhatsappTemplateFallback(dto.templateName, dto.templateParams ?? [])
+        : dto.body?.trim();
+      if (!body) {
+        throw new BadRequestException('Falta el mensaje a enviar.');
+      }
+      return this.whatsappGroups.sendMessageVia(
+        organizationId,
+        provider,
+        dto.groupId,
+        body,
+      );
+    }
     const phone = normalizePhoneForWhatsApp(dto.phone);
     if (!phone) {
       throw new BadRequestException('Telefono invalido.');
@@ -115,13 +141,70 @@ export class WhatsappController {
         phone,
         dto.templateName,
         dto.templateParams ?? [],
+        provider,
       );
     } else {
       if (!dto.body?.trim()) {
         throw new BadRequestException('Falta el mensaje a enviar.');
       }
-      await this.whatsapp.sendBotMessageToPhone(organizationId, phone, dto.body);
+      await this.whatsapp.sendBotMessageToPhone(
+        organizationId,
+        phone,
+        dto.body,
+        provider,
+      );
     }
+    return { sent: true };
+  }
+
+  // ----------------------------------------------------------------------
+  // Panel: WhatsApp Web (libreria no oficial, numero vinculado por QR)
+  // ----------------------------------------------------------------------
+
+  @Get('organizations/:organizationId/whatsapp/web/session')
+  @UseGuards(RolesGuard, OrganizationAccessGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  getWebSession(@Param('organizationId') organizationId: string) {
+    return this.whatsappWeb.getStatus(organizationId);
+  }
+
+  /**
+   * Inicia la conexion; si no hay sesion guardada, el estado pasa a QR. Con
+   * `phone` se vincula por codigo de 8 caracteres en lugar de QR.
+   */
+  @Post('organizations/:organizationId/whatsapp/web/session/connect')
+  @UseGuards(RolesGuard, OrganizationAccessGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  connectWebSession(
+    @Param('organizationId') organizationId: string,
+    @Body() dto: ConnectWebSessionDto,
+  ) {
+    return this.whatsappWeb.connect(organizationId, dto.phone);
+  }
+
+  /** Desvincula el numero (cierra sesion en WhatsApp y borra credenciales). */
+  @Delete('organizations/:organizationId/whatsapp/web/session')
+  @UseGuards(RolesGuard, OrganizationAccessGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  disconnectWebSession(@Param('organizationId') organizationId: string) {
+    return this.whatsappWeb.disconnect(organizationId);
+  }
+
+  @Get('organizations/:organizationId/whatsapp/web/groups')
+  @UseGuards(RolesGuard, OrganizationAccessGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  listWebGroups(@Param('organizationId') organizationId: string) {
+    return this.whatsappWeb.listGroups(organizationId);
+  }
+
+  @Post('organizations/:organizationId/whatsapp/web/groups/messages')
+  @UseGuards(RolesGuard, OrganizationAccessGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  async sendWebGroupMessage(
+    @Param('organizationId') organizationId: string,
+    @Body() dto: SendWebGroupMessageDto,
+  ): Promise<{ sent: true }> {
+    await this.whatsappWeb.sendToGroup(organizationId, dto.groupId, dto.body);
     return { sent: true };
   }
 
